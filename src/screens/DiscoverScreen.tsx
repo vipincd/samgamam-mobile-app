@@ -8,7 +8,12 @@ import {
 } from 'react-native';
 
 import { apiClient, getErrorMessage } from '../api/client';
-import type { EventSummary } from '../api/types';
+import type {
+  EventSummary,
+  GroupRecommendationItem,
+  RecommendationItem,
+  RecommendationsResponse,
+} from '../api/types';
 import { EventCard } from '../components/EventCard';
 import {
   Button,
@@ -31,6 +36,7 @@ export function DiscoverScreen(props: {
   viewerName: string | null;
 }) {
   const [events, setEvents] = useState<EventSummary[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendationsResponse | null>(null);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -56,6 +62,13 @@ export function DiscoverScreen(props: {
         const response = await apiClient.getEvents(props.locale);
         setEvents(response.events);
         setSummary(`Showing ${response.events.length} upcoming community moments.`);
+      }
+
+      if (props.authenticated) {
+        const nextRecommendations = await apiClient.getRecommendations(2);
+        setRecommendations(nextRecommendations);
+      } else {
+        setRecommendations(null);
       }
     } catch (loadError) {
       setError(getErrorMessage(loadError));
@@ -174,6 +187,59 @@ export function DiscoverScreen(props: {
         />
       ) : null}
 
+      {props.authenticated && recommendations ? (
+        <Surface style={styles.searchCard}>
+          <SectionHeader
+            subtitle="Belonging-aware recommendations combine your language, community history, and nearby activity."
+            title="Made for your circles"
+          />
+          {recommendations.recommendedForYou.map((item: RecommendationItem) => (
+            <View key={`recommended-${item.event.id}`} style={styles.recommendationCard}>
+              <View style={styles.heroStats}>
+                <Pill label={`Score ${item.score}`} tone="accent" />
+                {item.reasons.slice(0, 2).map((reason) => (
+                  <Pill key={reason} label={reason} tone="success" />
+                ))}
+              </View>
+              <EventCard
+                actionDisabled={pendingEventId === item.event.id || item.event.viewerRsvpState === 'going'}
+                actionLabel={
+                  item.event.viewerRsvpState === 'going'
+                    ? 'Already going'
+                    : item.event.remainingCapacity > 0
+                      ? 'RSVP now'
+                      : 'Join waitlist'
+                }
+                event={item.event}
+                locale={props.locale}
+                onActionPress={() => {
+                  void handleRsvp(item.event);
+                }}
+              />
+            </View>
+          ))}
+          {recommendations.communitiesYouMayFeelAtHomeIn.length > 0 ? (
+            <View style={styles.communityList}>
+              {recommendations.communitiesYouMayFeelAtHomeIn.map((item: GroupRecommendationItem) => (
+                <Surface key={`community-${item.group.id}`} style={styles.communityCard}>
+                  <View style={styles.heroStats}>
+                    <Pill label={`Score ${item.score}`} tone="accent" />
+                    {item.group.languages.slice(0, 2).map((language) => (
+                      <Pill key={`${item.group.id}-${language}`} label={language.toUpperCase()} tone="success" />
+                    ))}
+                  </View>
+                  <Text style={styles.heroTitle}>{item.group.name}</Text>
+                  <Text style={styles.heroText}>{item.group.description}</Text>
+                  <Text style={styles.communityMeta}>
+                    {item.group.memberCount} members · {item.group.discussionCount} discussions
+                  </Text>
+                </Surface>
+              ))}
+            </View>
+          ) : null}
+        </Surface>
+      ) : null}
+
       <SectionHeader
         subtitle={loading ? 'Refreshing live content from the backend.' : 'Pulled from /api/events or /api/search.'}
         title="Upcoming moments"
@@ -245,6 +311,21 @@ const styles = StyleSheet.create({
   },
   searchCard: {
     gap: 14,
+  },
+  recommendationCard: {
+    gap: 10,
+  },
+  communityList: {
+    gap: 10,
+  },
+  communityCard: {
+    backgroundColor: theme.colors.cardAlt,
+    gap: 10,
+  },
+  communityMeta: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontWeight: '600',
   },
   row: {
     columnGap: 12,

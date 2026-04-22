@@ -11,6 +11,7 @@ import { apiClient, getErrorMessage } from '../api/client';
 import type {
   AnalyticsOverview,
   AuthSessionResponse,
+  GroupRecommendationItem,
   NotificationItem,
   RecommendationItem,
   RecommendationsResponse,
@@ -218,9 +219,16 @@ export function ProfileScreen(props: {
   }
 
   function recommendationSections(): Array<{
-    items: RecommendationItem[];
-    key: keyof RecommendationsResponse;
+    items: Array<RecommendationItem | GroupRecommendationItem>;
+    key:
+      | 'recommendedForYou'
+      | 'communitiesYouMayFeelAtHomeIn'
+      | 'peopleLikeYouAreJoining'
+      | 'gatheringsNearYou'
+      | 'becauseYouJoined'
+      | 'inYourLanguage';
     title: string;
+    kind: 'community' | 'event';
   }> {
     if (!recommendations) {
       return [];
@@ -231,16 +239,37 @@ export function ProfileScreen(props: {
         items: recommendations.recommendedForYou,
         key: 'recommendedForYou',
         title: 'Recommended for you',
+        kind: 'event',
       },
       {
-        items: recommendations.peopleLikeYouAttended,
-        key: 'peopleLikeYouAttended',
-        title: 'People like you attended',
+        items: recommendations.communitiesYouMayFeelAtHomeIn,
+        key: 'communitiesYouMayFeelAtHomeIn',
+        title: 'Communities you may feel at home in',
+        kind: 'community',
       },
       {
-        items: recommendations.trendingNearYou,
-        key: 'trendingNearYou',
-        title: 'Trending near you',
+        items: recommendations.peopleLikeYouAreJoining,
+        key: 'peopleLikeYouAreJoining',
+        title: 'People like you are joining',
+        kind: 'event',
+      },
+      {
+        items: recommendations.gatheringsNearYou,
+        key: 'gatheringsNearYou',
+        title: 'Gatherings near you',
+        kind: 'event',
+      },
+      {
+        items: recommendations.becauseYouJoined,
+        key: 'becauseYouJoined',
+        title: 'Because you joined',
+        kind: 'event',
+      },
+      {
+        items: recommendations.inYourLanguage,
+        key: 'inYourLanguage',
+        title: 'In your language',
+        kind: 'event',
       },
     ];
   }
@@ -446,17 +475,38 @@ export function ProfileScreen(props: {
                   title="No items in this section"
                 />
               ) : (
-                section.items.map((item) => (
-                  <View key={`${section.key}-${item.event.id}`} style={styles.recommendationCard}>
-                    <View style={styles.quickActions}>
-                      <Pill label={`Score ${item.score}`} tone="accent" />
-                      {item.reasons.slice(0, 2).map((reason) => (
-                        <Pill key={reason} label={reason} tone="success" />
-                      ))}
-                    </View>
-                    <EventCard event={item.event} locale={props.locale} />
-                  </View>
-                ))
+                section.kind === 'event'
+                  ? (section.items as RecommendationItem[]).map((item) => (
+                      <View key={`${section.key}-${item.event.id}`} style={styles.recommendationCard}>
+                        <View style={styles.quickActions}>
+                          <Pill label={`Score ${item.score}`} tone="accent" />
+                          {item.reasons.slice(0, 2).map((reason) => (
+                            <Pill key={reason} label={reason} tone="success" />
+                          ))}
+                        </View>
+                        <EventCard event={item.event} locale={props.locale} />
+                      </View>
+                    ))
+                  : (section.items as GroupRecommendationItem[]).map((item) => (
+                      <Surface key={`${section.key}-${item.group.id}`} style={styles.communityRecommendationCard}>
+                        <View style={styles.quickActions}>
+                          <Pill label={`Score ${item.score}`} tone="accent" />
+                          {item.group.languages.slice(0, 2).map((language) => (
+                            <Pill key={`${item.group.id}-${language}`} label={language.toUpperCase()} tone="success" />
+                          ))}
+                        </View>
+                        <Text style={styles.analyticsTitle}>{item.group.name}</Text>
+                        <Text style={styles.notificationBody}>{item.group.description}</Text>
+                        <Text style={styles.analyticsMeta}>
+                          {item.group.memberCount} members · {item.group.discussionCount} discussions
+                        </Text>
+                        <View style={styles.quickActions}>
+                          {item.reasons.slice(0, 2).map((reason) => (
+                            <Pill key={reason} label={reason} tone="default" />
+                          ))}
+                        </View>
+                      </Surface>
+                    ))
               )}
             </View>
           ))}
@@ -552,6 +602,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   recommendationCard: {
+    gap: 10,
+  },
+  communityRecommendationCard: {
+    backgroundColor: theme.colors.cardAlt,
     gap: 10,
   },
   metricRow: {

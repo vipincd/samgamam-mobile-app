@@ -77,6 +77,12 @@ export interface RecommendationItem {
   event: EventSummary;
 }
 
+export interface GroupRecommendationItem {
+  score: number;
+  reasons: string[];
+  group: GroupSummary;
+}
+
 export interface AnalyticsEventStat {
   eventId: string;
   views: number;
@@ -144,6 +150,11 @@ export interface NotificationListResponse {
 
 export interface RecommendationsResponse {
   recommendedForYou: RecommendationItem[];
+  communitiesYouMayFeelAtHomeIn: GroupRecommendationItem[];
+  peopleLikeYouAreJoining: RecommendationItem[];
+  gatheringsNearYou: RecommendationItem[];
+  becauseYouJoined: RecommendationItem[];
+  inYourLanguage: RecommendationItem[];
   peopleLikeYouAttended: RecommendationItem[];
   trendingNearYou: RecommendationItem[];
 }
