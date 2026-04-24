@@ -21,17 +21,29 @@ import {
 } from '../components/ui';
 import { theme } from '../theme';
 import { capitalizeLabel, formatDateTime } from '../utils/format';
+import type { MobileRoute } from '../navigation/deepLinks';
+
+const reactionLabels: Record<'acknowledge' | 'celebrate' | 'like', string> = {
+  acknowledge: 'Acknowledge',
+  celebrate: 'Celebrate',
+  like: 'Like',
+};
 
 export function GroupsScreen(props: {
   authenticated: boolean;
   isFocused: boolean;
   locale: string;
+  navigationTarget?: { id: number; route: MobileRoute } | null;
+  onOpenRoute: (route: string | MobileRoute) => Promise<void>;
   onRequestSignIn: () => void;
 }) {
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
   const [draftMessage, setDraftMessage] = useState('');
+  const [draftKind, setDraftKind] = useState<'announcement' | 'discussion' | 'reflection'>(
+    'discussion',
+  );
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [discussionLoading, setDiscussionLoading] = useState(false);
@@ -43,6 +55,10 @@ export function GroupsScreen(props: {
     groups.find((group) => group.id === selectedGroupId) ?? null;
   const canOpenSelectedDiscussion = Boolean(
     props.authenticated && selectedGroup?.viewerMembershipStatus === 'active',
+  );
+  const canAnnounce = Boolean(
+    selectedGroup?.viewerMembershipRole === 'co-organizer' ||
+      selectedGroup?.viewerMembershipRole === 'organizer',
   );
 
   async function loadGroups(isRefresh = false) {
@@ -123,6 +139,19 @@ export function GroupsScreen(props: {
     void loadDiscussions(selectedGroup);
   }, [props.authenticated, props.isFocused, props.locale, selectedGroupId, groups]);
 
+  useEffect(() => {
+    if (!props.isFocused || !props.navigationTarget) {
+      return;
+    }
+
+    const { route } = props.navigationTarget;
+
+    if (route.kind === 'group') {
+      setSelectedGroupId(route.groupId);
+      setNotice('Opened this community from a Samgamam link.');
+    }
+  }, [props.isFocused, props.navigationTarget?.id]);
+
   async function handlePostDiscussion() {
     if (!selectedGroup) {
       return;
@@ -143,14 +172,35 @@ export function GroupsScreen(props: {
     setError(null);
 
     try {
-      const response = await apiClient.createDiscussion(selectedGroup.id, draftMessage.trim());
+      const response = await apiClient.createDiscussionWithKind(selectedGroup.id, draftMessage.trim(), {
+        kind: draftKind,
+      });
       setDiscussions((currentDiscussions) => [response.post, ...currentDiscussions]);
       setDraftMessage('');
-      setNotice('Your discussion post is live.');
+      setDraftKind('discussion');
+      setNotice(
+        draftKind === 'announcement'
+          ? 'Your community announcement is live.'
+          : 'Your discussion post is live.',
+      );
     } catch (postError) {
       setError(getErrorMessage(postError));
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function handleReaction(
+    postId: string,
+    reaction: 'acknowledge' | 'celebrate' | 'like',
+  ) {
+    try {
+      const response = await apiClient.reactToDiscussion(postId, reaction);
+      setDiscussions((currentValue) =>
+        currentValue.map((post) => (post.id === postId ? response.post : post)),
+      );
+    } catch (reactionError) {
+      setError(getErrorMessage(reactionError));
     }
   }
 
@@ -170,7 +220,7 @@ export function GroupsScreen(props: {
     >
       <ScreenIntro
         eyebrow="Groups"
-        subtitle="Browse community circles, inspect membership status, and load real discussion threads from the backend."
+        subtitle="These community spaces now carry continuity between events instead of acting like static membership cards."
         title="Keep each circle feeling alive."
       />
 
@@ -209,8 +259,8 @@ export function GroupsScreen(props: {
             </View>
             <Text style={styles.groupDescription}>{group.description}</Text>
             <Text style={styles.groupMeta}>
-              {group.memberCount} members · {group.discussionCount} posts
-              {group.requiresApproval ? ' · Approval required' : ''}
+              {group.memberCount} members | {group.discussionCount} posts
+              {group.requiresApproval ? ' | Approval required' : ''}
             </Text>
             <View style={styles.badges}>
               {group.tags.slice(0, 4).map((tag) => (
@@ -218,7 +268,7 @@ export function GroupsScreen(props: {
               ))}
             </View>
             <Button
-              label={isSelected ? 'Viewing discussion' : 'Open group'}
+              label={isSelected ? 'Viewing discussion' : 'Open community'}
               onPress={() => {
                 setSelectedGroupId(group.id);
                 setNotice(null);
@@ -233,7 +283,7 @@ export function GroupsScreen(props: {
         <Surface style={styles.discussionCard}>
           <SectionHeader
             subtitle={`Selected group: ${selectedGroup.name}`}
-            title="Discussion lounge"
+            title="Community discussion"
           />
           {!canOpenSelectedDiscussion ? (
             <InlineNotice
@@ -257,30 +307,74 @@ export function GroupsScreen(props: {
           ) : null}
           {canOpenSelectedDiscussion
             ? discussions.map((post) => (
-                <View key={post.id} style={styles.post}>
+                <Surface key={post.id} style={styles.post}>
                   <View style={styles.postHeader}>
                     <Text style={styles.postAuthor}>{post.authorName}</Text>
-                    {post.pinned ? <Pill label="Pinned" tone="accent" /> : null}
+                    <View style={styles.badges}>
+                      <Pill
+                        label={capitalizeLabel(post.kind)}
+                        tone={post.kind === 'announcement' ? 'accent' : 'default'}
+                      />
+                      {post.pinned ? <Pill label="Pinned" tone="success" /> : null}
+                    </View>
                   </View>
+                  {post.replyPreview ? (
+                    <Text style={styles.replyPreview}>Replying to: {post.replyPreview}</Text>
+                  ) : null}
                   <Text style={styles.postBody}>{post.body}</Text>
                   <Text style={styles.postMeta}>{formatDateTime(post.createdAt, props.locale)}</Text>
-                </View>
+                  <View style={styles.badges}>
+                    {post.reactionSummary.map((reaction) => (
+                      <Button
+                        compact
+                        key={`${post.id}-${reaction.type}`}
+                        label={`${reactionLabels[reaction.type]}${reaction.count > 0 ? ` (${reaction.count})` : ''}`}
+                        onPress={() => {
+                          void handleReaction(post.id, reaction.type);
+                        }}
+                        variant={post.viewerReaction === reaction.type ? 'secondary' : 'ghost'}
+                      />
+                    ))}
+                  </View>
+                </Surface>
               ))
             : null}
           <Field
             editable={canOpenSelectedDiscussion && !posting}
-            label="Post to the group"
+            label="Post to the community"
             multiline
             onChangeText={setDraftMessage}
-            placeholder="Share an update, question, or coordination note"
+            placeholder="Share an update, question, or follow-up note"
             style={styles.multilineInput}
             textAlignVertical="top"
             value={draftMessage}
           />
+          {canAnnounce ? (
+            <View style={styles.badges}>
+              <Button
+                compact
+                label="Discussion"
+                onPress={() => setDraftKind('discussion')}
+                variant={draftKind === 'discussion' ? 'secondary' : 'ghost'}
+              />
+              <Button
+                compact
+                label="Announcement"
+                onPress={() => setDraftKind('announcement')}
+                variant={draftKind === 'announcement' ? 'secondary' : 'ghost'}
+              />
+              <Button
+                compact
+                label="Reflection"
+                onPress={() => setDraftKind('reflection')}
+                variant={draftKind === 'reflection' ? 'secondary' : 'ghost'}
+              />
+            </View>
+          ) : null}
           <View style={styles.row}>
             <Button
               disabled={!draftMessage.trim() || !canOpenSelectedDiscussion || posting}
-              label={posting ? 'Posting...' : 'Post message'}
+              label={posting ? 'Posting...' : canAnnounce && draftKind === 'announcement' ? 'Post announcement' : 'Post message'}
               onPress={() => {
                 void handlePostDiscussion();
               }}
@@ -343,14 +437,12 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: theme.colors.muted,
-    fontSize: 14,
+    fontSize: 15,
     textAlign: 'center',
   },
   post: {
     backgroundColor: theme.colors.cardAlt,
-    borderRadius: theme.radius.sm,
-    gap: 8,
-    padding: 14,
+    gap: 10,
   },
   postHeader: {
     alignItems: 'center',
@@ -359,18 +451,24 @@ const styles = StyleSheet.create({
   },
   postAuthor: {
     color: theme.colors.text,
-    fontSize: 14,
+    flex: 1,
+    fontSize: 15,
     fontWeight: '800',
+    marginRight: 12,
   },
   postBody: {
     color: theme.colors.text,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   postMeta: {
     color: theme.colors.muted,
     fontSize: 12,
-    fontWeight: '600',
+  },
+  replyPreview: {
+    color: theme.colors.accent,
+    fontSize: 12,
+    fontWeight: '700',
   },
   multilineInput: {
     minHeight: 110,

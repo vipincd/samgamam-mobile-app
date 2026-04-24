@@ -38,6 +38,8 @@ export function Surface(props: {
 }
 
 export function Button(props: {
+  accessibilityHint?: string;
+  accessibilityLabel?: string;
   compact?: boolean;
   disabled?: boolean;
   label: string;
@@ -50,7 +52,10 @@ export function Button(props: {
 
   return (
     <Pressable
+      accessibilityHint={props.accessibilityHint}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
       accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(props.disabled) }}
       disabled={props.disabled}
       onPress={props.onPress}
       style={({ pressed }) => [
@@ -171,6 +176,22 @@ export function EmptyState(props: {
     <Surface style={styles.emptyState}>
       <Text style={styles.emptyTitle}>{props.title}</Text>
       <Text style={styles.emptyMessage}>{props.message}</Text>
+    </Surface>
+  );
+}
+
+export function LoadingState(props: {
+  message?: string;
+  title?: string;
+}) {
+  return (
+    <Surface style={styles.loadingState}>
+      <View style={styles.skeletonLineWide} />
+      <View style={styles.skeletonLine} />
+      <Text style={styles.emptyTitle}>{props.title ?? 'Loading'}</Text>
+      <Text style={styles.emptyMessage}>
+        {props.message ?? 'Fetching the latest Samgamam state.'}
+      </Text>
     </Surface>
   );
 }
@@ -353,6 +374,24 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     gap: 6,
+  },
+  loadingState: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  skeletonLineWide: {
+    backgroundColor: theme.colors.border,
+    borderRadius: 999,
+    height: 12,
+    opacity: 0.7,
+    width: '72%',
+  },
+  skeletonLine: {
+    backgroundColor: theme.colors.border,
+    borderRadius: 999,
+    height: 12,
+    opacity: 0.55,
+    width: '48%',
   },
   emptyTitle: {
     color: theme.colors.text,

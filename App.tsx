@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import * as ExpoLinking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,13 +14,22 @@ import { StatusBar } from 'expo-status-bar';
 import { apiClient, getErrorMessage } from './src/api/client';
 import type { AuthSessionResponse } from './src/api/types';
 import { InlineNotice } from './src/components/ui';
+import {
+  describeRoute,
+  parseSamgamamRoute,
+  routeNeedsAuthentication,
+  routeToTab,
+  type MobileRoute,
+} from './src/navigation/deepLinks';
 import { DiscoverScreen } from './src/screens/DiscoverScreen';
+import { EcosystemScreen } from './src/screens/EcosystemScreen';
 import { GroupsScreen } from './src/screens/GroupsScreen';
 import { HelpScreen } from './src/screens/HelpScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
+import { registerForPushNotifications } from './src/services/pushNotifications';
 import { theme } from './src/theme';
 
-type TabKey = 'discover' | 'groups' | 'help' | 'profile';
+type TabKey = 'discover' | 'groups' | 'ecosystem' | 'help' | 'profile';
 
 const defaultSession: AuthSessionResponse = {
   authenticated: false,
@@ -29,6 +40,7 @@ const defaultSession: AuthSessionResponse = {
 const tabs: Array<{ key: TabKey; label: string; hint: string }> = [
   { key: 'discover', label: 'Discover', hint: 'Events' },
   { key: 'groups', label: 'Groups', hint: 'Community' },
+  { key: 'ecosystem', label: 'Ecosystem', hint: 'Network' },
   { key: 'help', label: 'Help', hint: 'AI guide' },
   { key: 'profile', label: 'Profile', hint: 'Account' },
 ];
@@ -46,7 +58,46 @@ export default function App() {
   const [session, setSession] = useState<AuthSessionResponse>(defaultSession);
   const [apiBaseUrl, setApiBaseUrl] = useState(apiClient.getBaseUrl());
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [globalNotice, setGlobalNotice] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [navigationTarget, setNavigationTarget] = useState<{
+    id: number;
+    route: MobileRoute;
+  } | null>(null);
+  const [pendingAuthRoute, setPendingAuthRoute] = useState<MobileRoute | null>(null);
+  const initialUrlHandledRef = useRef(false);
+  const routeCounterRef = useRef(0);
+
+  const applyRoute = useCallback(
+    (route: MobileRoute, options?: { authenticated?: boolean; source?: 'link' | 'notification' | 'pending' }) => {
+      const isAuthenticated = options?.authenticated ?? session.authenticated;
+
+      if (route.kind === 'unknown') {
+        setGlobalNotice(route.message);
+        return;
+      }
+
+      if (!isAuthenticated && routeNeedsAuthentication(route)) {
+        setPendingAuthRoute(route);
+        setActiveTab('profile');
+        setGlobalNotice(`Sign in to continue to ${describeRoute(route)}.`);
+        return;
+      }
+
+      routeCounterRef.current += 1;
+      setNavigationTarget({
+        id: routeCounterRef.current,
+        route,
+      });
+      setActiveTab(routeToTab(route));
+      setGlobalNotice(
+        options?.source === 'notification'
+          ? `Opened ${describeRoute(route)} from a notification.`
+          : null,
+      );
+    },
+    [session.authenticated],
+  );
 
   async function refreshSession() {
     const nextSession = await apiClient.getSession();
@@ -84,14 +135,20 @@ export default function App() {
 
   async function handleLogin(email: string, password: string) {
     const response = await apiClient.login(email, password);
-    setSession(
-      normalizeSession({
-        authenticated: true,
-        locale: response.locale,
-        viewer: response.viewer,
-      }),
-    );
+    const nextSession = normalizeSession({
+      authenticated: true,
+      locale: response.locale,
+      viewer: response.viewer,
+    });
+
+    setSession(nextSession);
     setConnectionError(null);
+
+    if (pendingAuthRoute) {
+      const route = pendingAuthRoute;
+      setPendingAuthRoute(null);
+      applyRoute(route, { authenticated: true, source: 'pending' });
+    }
   }
 
   async function handleLogout() {
@@ -104,6 +161,67 @@ export default function App() {
     setActiveTab('profile');
   }
 
+  async function handleOpenRoute(value: string | MobileRoute) {
+    const route = typeof value === 'string' ? parseSamgamamRoute(value) : value;
+
+    if (!route) {
+      setGlobalNotice('This Samgamam link could not be opened.');
+      return;
+    }
+
+    applyRoute(route);
+  }
+
+  async function handleRegisterPush() {
+    const registration = await registerForPushNotifications();
+
+    if (registration.status === 'registered') {
+      await apiClient.registerPushToken(registration.token, registration.platform);
+    }
+
+    return registration.message;
+  }
+
+  useEffect(() => {
+    const handleUrl = (url: string | null) => {
+      const route = parseSamgamamRoute(url);
+
+      if (route) {
+        applyRoute(route, { source: 'link' });
+      }
+    };
+
+    if (!initialUrlHandledRef.current) {
+      initialUrlHandledRef.current = true;
+      void ExpoLinking.getInitialURL().then(handleUrl).catch(() => {
+        setGlobalNotice('Samgamam could not inspect the launch link.');
+      });
+    }
+
+    const linkSubscription = ExpoLinking.addEventListener('url', ({ url }) => {
+      handleUrl(url);
+    });
+    const notificationSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const rawUrl = response.notification.request.content.data?.url;
+
+      if (typeof rawUrl === 'string') {
+        const route = parseSamgamamRoute(rawUrl);
+
+        if (route) {
+          applyRoute(route, { source: 'notification' });
+        }
+      } else {
+        setActiveTab('profile');
+        setGlobalNotice('Notification opened, but it did not include a mobile route.');
+      }
+    });
+
+    return () => {
+      linkSubscription.remove();
+      notificationSubscription.remove();
+    };
+  }, [applyRoute]);
+
   const locale = session.locale ?? 'en';
   const sharedScreenProps = {
     isFocused: false,
@@ -112,12 +230,14 @@ export default function App() {
   };
 
   let screen = (
-    <DiscoverScreen
-      {...sharedScreenProps}
-      authenticated={session.authenticated}
-      isFocused={activeTab === 'discover'}
-      viewerName={session.viewer?.fullName ?? null}
-    />
+      <DiscoverScreen
+        {...sharedScreenProps}
+        authenticated={session.authenticated}
+        isFocused={activeTab === 'discover'}
+        navigationTarget={navigationTarget}
+        onOpenRoute={handleOpenRoute}
+        viewerName={session.viewer?.fullName ?? null}
+      />
   );
 
   if (activeTab === 'groups') {
@@ -126,11 +246,23 @@ export default function App() {
         {...sharedScreenProps}
         authenticated={session.authenticated}
         isFocused
+        navigationTarget={navigationTarget}
+        onOpenRoute={handleOpenRoute}
       />
     );
   } else if (activeTab === 'help') {
     screen = (
       <HelpScreen
+        {...sharedScreenProps}
+        authenticated={session.authenticated}
+        isFocused
+        roles={session.viewer?.roles ?? []}
+        viewerName={session.viewer?.fullName ?? null}
+      />
+    );
+  } else if (activeTab === 'ecosystem') {
+    screen = (
+      <EcosystemScreen
         {...sharedScreenProps}
         authenticated={session.authenticated}
         isFocused
@@ -147,9 +279,11 @@ export default function App() {
         locale={locale}
         onLogin={handleLogin}
         onLogout={handleLogout}
+        onOpenRoute={handleOpenRoute}
         onRefreshSession={async () => {
           await refreshSession();
         }}
+        onRegisterPush={handleRegisterPush}
         onSaveApiBaseUrl={handleSaveApiBaseUrl}
         session={session}
       />
@@ -186,6 +320,11 @@ export default function App() {
             />
           </View>
         ) : null}
+        {globalNotice ? (
+          <View style={styles.banner}>
+            <InlineNotice message={globalNotice} tone="accent" title="Navigation" />
+          </View>
+        ) : null}
         <View style={styles.content}>{screen}</View>
         <View style={styles.tabBar}>
           {tabs.map((tab) => {
@@ -194,6 +333,8 @@ export default function App() {
             return (
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`${tab.label} tab`}
                 key={tab.key}
                 onPress={() => setActiveTab(tab.key)}
                 style={[styles.tabButton, isActive ? styles.tabButtonActive : undefined]}

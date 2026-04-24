@@ -11,9 +11,14 @@ import { apiClient, getErrorMessage } from '../api/client';
 import type {
   AnalyticsOverview,
   AuthSessionResponse,
+  ContinuityResponse,
+  ExperimentOverviewResponse,
   GroupRecommendationItem,
+  MarketplaceOverviewResponse,
   NotificationItem,
+  OrganizerInsightsResponse,
   RecommendationItem,
+  RecommendationLearningResponse,
   RecommendationsResponse,
 } from '../api/types';
 import { EventCard } from '../components/EventCard';
@@ -29,6 +34,8 @@ import {
   Surface,
 } from '../components/ui';
 import { theme } from '../theme';
+import type { MobileRoute } from '../navigation/deepLinks';
+import { notificationRouteLabel, resolveNotificationRoute } from '../notifications/routing';
 import {
   capitalizeLabel,
   formatDateTime,
@@ -61,7 +68,9 @@ export function ProfileScreen(props: {
   locale: string;
   onLogin: (email: string, password: string) => Promise<void>;
   onLogout: () => Promise<void>;
+  onOpenRoute: (route: string | MobileRoute) => Promise<void>;
   onRefreshSession: () => Promise<void>;
+  onRegisterPush: () => Promise<string>;
   onSaveApiBaseUrl: (value: string | null) => Promise<string>;
   session: AuthSessionResponse;
 }) {
@@ -75,9 +84,18 @@ export function ProfileScreen(props: {
   const [unreadCount, setUnreadCount] = useState(0);
   const [recommendations, setRecommendations] =
     useState<RecommendationsResponse | null>(null);
+  const [continuity, setContinuity] = useState<ContinuityResponse | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
+  const [organizerInsights, setOrganizerInsights] = useState<OrganizerInsightsResponse | null>(null);
+  const [experiments, setExperiments] = useState<ExperimentOverviewResponse | null>(null);
+  const [marketplace, setMarketplace] = useState<MarketplaceOverviewResponse | null>(null);
+  const [recommendationLearning, setRecommendationLearning] =
+    useState<RecommendationLearningResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [inAppNotifications, setInAppNotifications] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [markingNotificationId, setMarkingNotificationId] = useState<string | null>(null);
 
@@ -98,7 +116,7 @@ export function ProfileScreen(props: {
 
     try {
       const health = await apiClient.healthCheck();
-      setHealthMessage(`Connected to ${health.service} · ${formatDateTime(health.timestamp, props.locale)}`);
+      setHealthMessage(`Connected to ${health.service} | ${formatDateTime(health.timestamp, props.locale)}`);
     } catch (healthError) {
       setHealthMessage(null);
       setDashboardError(getErrorMessage(healthError));
@@ -108,20 +126,40 @@ export function ProfileScreen(props: {
       setNotifications([]);
       setUnreadCount(0);
       setRecommendations(null);
+      setContinuity(null);
       setAnalytics(null);
+      setOrganizerInsights(null);
+      setExperiments(null);
+      setMarketplace(null);
+      setRecommendationLearning(null);
       setRefreshing(false);
       return;
     }
 
+    const canLoadOrganizerData =
+      props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin');
+
     const promises = await Promise.allSettled([
       apiClient.getNotifications(),
       apiClient.getRecommendations(3),
-      props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin')
-        ? apiClient.getAnalytics()
-        : Promise.resolve(null),
+      apiClient.getContinuity(4, props.locale),
+      canLoadOrganizerData ? apiClient.getAnalytics() : Promise.resolve(null),
+      canLoadOrganizerData ? apiClient.getOrganizerInsights() : Promise.resolve(null),
+      canLoadOrganizerData ? apiClient.getExperiments() : Promise.resolve(null),
+      canLoadOrganizerData ? apiClient.getMarketplace(props.locale) : Promise.resolve(null),
+      canLoadOrganizerData ? apiClient.getRecommendationTuning(props.locale) : Promise.resolve(null),
     ]);
 
-    const [notificationsResult, recommendationsResult, analyticsResult] = promises;
+    const [
+      notificationsResult,
+      recommendationsResult,
+      continuityResult,
+      analyticsResult,
+      organizerInsightsResult,
+      experimentsResult,
+      marketplaceResult,
+      recommendationLearningResult,
+    ] = promises;
 
     if (notificationsResult.status === 'fulfilled') {
       setNotifications(notificationsResult.value.notifications);
@@ -136,12 +174,50 @@ export function ProfileScreen(props: {
       setDashboardError((currentValue) => currentValue ?? getErrorMessage(recommendationsResult.reason));
     }
 
+    if (continuityResult.status === 'fulfilled') {
+      setContinuity(continuityResult.value);
+    } else {
+      setDashboardError((currentValue) => currentValue ?? getErrorMessage(continuityResult.reason));
+    }
+
     if (analyticsResult.status === 'fulfilled' && analyticsResult.value) {
       setAnalytics(analyticsResult.value);
     } else if (analyticsResult.status === 'rejected') {
       setDashboardError((currentValue) => currentValue ?? getErrorMessage(analyticsResult.reason));
     } else {
       setAnalytics(null);
+    }
+
+    if (organizerInsightsResult.status === 'fulfilled' && organizerInsightsResult.value) {
+      setOrganizerInsights(organizerInsightsResult.value);
+    } else if (organizerInsightsResult.status === 'rejected') {
+      setDashboardError((currentValue) => currentValue ?? getErrorMessage(organizerInsightsResult.reason));
+    } else {
+      setOrganizerInsights(null);
+    }
+
+    if (experimentsResult.status === 'fulfilled' && experimentsResult.value) {
+      setExperiments(experimentsResult.value);
+    } else if (experimentsResult.status === 'rejected') {
+      setDashboardError((currentValue) => currentValue ?? getErrorMessage(experimentsResult.reason));
+    } else {
+      setExperiments(null);
+    }
+
+    if (marketplaceResult.status === 'fulfilled' && marketplaceResult.value) {
+      setMarketplace(marketplaceResult.value);
+    } else if (marketplaceResult.status === 'rejected') {
+      setDashboardError((currentValue) => currentValue ?? getErrorMessage(marketplaceResult.reason));
+    } else {
+      setMarketplace(null);
+    }
+
+    if (recommendationLearningResult.status === 'fulfilled' && recommendationLearningResult.value) {
+      setRecommendationLearning(recommendationLearningResult.value);
+    } else if (recommendationLearningResult.status === 'rejected') {
+      setDashboardError((currentValue) => currentValue ?? getErrorMessage(recommendationLearningResult.reason));
+    } else {
+      setRecommendationLearning(null);
     }
 
     setRefreshing(false);
@@ -175,7 +251,12 @@ export function ProfileScreen(props: {
       setNotifications([]);
       setUnreadCount(0);
       setRecommendations(null);
+      setContinuity(null);
       setAnalytics(null);
+      setOrganizerInsights(null);
+      setExperiments(null);
+      setMarketplace(null);
+      setRecommendationLearning(null);
       setStatusMessage('Signed out from this device.');
     } catch (error) {
       setStatusMessage(getErrorMessage(error));
@@ -218,6 +299,21 @@ export function ProfileScreen(props: {
     }
   }
 
+  async function handleEnablePush() {
+    setPushLoading(true);
+    setStatusMessage(null);
+
+    try {
+      const message = await props.onRegisterPush();
+      setPushEnabled(message.includes('enabled'));
+      setStatusMessage(message);
+    } catch (error) {
+      setStatusMessage(getErrorMessage(error));
+    } finally {
+      setPushLoading(false);
+    }
+  }
+
   function recommendationSections(): Array<{
     items: Array<RecommendationItem | GroupRecommendationItem>;
     key:
@@ -226,7 +322,11 @@ export function ProfileScreen(props: {
       | 'peopleLikeYouAreJoining'
       | 'gatheringsNearYou'
       | 'becauseYouJoined'
-      | 'inYourLanguage';
+      | 'inYourLanguage'
+      | 'peopleWhoAttendedAlsoJoined'
+      | 'communitiesGrowingLikeYours'
+      | 'eventsYouWillLikelyAttend'
+      | 'communitiesYouMayJoinNext';
     title: string;
     kind: 'community' | 'event';
   }> {
@@ -242,9 +342,21 @@ export function ProfileScreen(props: {
         kind: 'event',
       },
       {
+        items: recommendations.eventsYouWillLikelyAttend,
+        key: 'eventsYouWillLikelyAttend',
+        title: 'Events you will likely attend',
+        kind: 'event',
+      },
+      {
         items: recommendations.communitiesYouMayFeelAtHomeIn,
         key: 'communitiesYouMayFeelAtHomeIn',
         title: 'Communities you may feel at home in',
+        kind: 'community',
+      },
+      {
+        items: recommendations.communitiesYouMayJoinNext,
+        key: 'communitiesYouMayJoinNext',
+        title: 'Communities you may join next',
         kind: 'community',
       },
       {
@@ -270,6 +382,18 @@ export function ProfileScreen(props: {
         key: 'inYourLanguage',
         title: 'In your language',
         kind: 'event',
+      },
+      {
+        items: recommendations.peopleWhoAttendedAlsoJoined,
+        key: 'peopleWhoAttendedAlsoJoined',
+        title: 'People who attended also joined',
+        kind: 'community',
+      },
+      {
+        items: recommendations.communitiesGrowingLikeYours,
+        key: 'communitiesGrowingLikeYours',
+        title: 'Communities growing like yours',
+        kind: 'community',
       },
     ];
   }
@@ -416,7 +540,102 @@ export function ProfileScreen(props: {
       {props.session.authenticated ? (
         <Surface style={styles.sectionCard}>
           <SectionHeader
-            subtitle={`${unreadCount} unread · synced from /api/notifications`}
+            subtitle="These cards come from /api/continuity and turn return behavior into something warmer than a feed."
+            title="Continuity"
+          />
+          {!continuity ? (
+            <EmptyState
+              message="Continuity prompts will appear here after the next backend refresh."
+              title="No continuity data yet"
+            />
+          ) : null}
+          {continuity?.continueConversation.length ? (
+            <View style={styles.recommendationSection}>
+              <SectionHeader title="Continue the conversation" />
+              {continuity.continueConversation.map((item) => (
+                <Surface key={item.id} style={styles.communityRecommendationCard}>
+                  <View style={styles.quickActions}>
+                    <Pill label={capitalizeLabel(item.kind)} tone="accent" />
+                    {item.reasons.slice(0, 2).map((reason) => (
+                      <Pill
+                        key={`${item.id}-${reason}`}
+                        label={capitalizeLabel(reason.replace(/_/g, ' '))}
+                        tone="default"
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.analyticsTitle}>{item.title}</Text>
+                  <Text style={styles.notificationBody}>{item.body}</Text>
+                </Surface>
+              ))}
+            </View>
+          ) : null}
+          {continuity?.newInYourCommunities.length ? (
+            <View style={styles.recommendationSection}>
+              <SectionHeader title="New in your communities" />
+              {continuity.newInYourCommunities.map((item) => (
+                <Surface key={item.id} style={styles.communityRecommendationCard}>
+                  <Text style={styles.analyticsTitle}>{item.title}</Text>
+                  <Text style={styles.notificationBody}>{item.body}</Text>
+                  <Text style={styles.notificationMeta}>{formatDateTime(item.createdAt, props.locale)}</Text>
+                </Surface>
+              ))}
+            </View>
+          ) : null}
+          {continuity?.organizerNudges.length ? (
+            <View style={styles.recommendationSection}>
+              <SectionHeader title="Organizer nudges" />
+              {continuity.organizerNudges.map((item) => (
+                <Surface key={item.id} style={styles.communityRecommendationCard}>
+                  <View style={styles.quickActions}>
+                    <Pill
+                      label={capitalizeLabel(item.priority)}
+                      tone={item.priority === 'high' ? 'warning' : 'accent'}
+                    />
+                  </View>
+                  <Text style={styles.analyticsTitle}>{item.title}</Text>
+                  <Text style={styles.notificationBody}>{item.body}</Text>
+                </Surface>
+              ))}
+            </View>
+          ) : null}
+        </Surface>
+      ) : null}
+
+      {props.session.authenticated ? (
+        <Surface style={styles.sectionCard}>
+          <SectionHeader
+            subtitle="Push registration is device-specific. In-app notifications remain available even if push permission is blocked."
+            title="Notification preferences"
+          />
+          <View style={styles.quickActions}>
+            <Button
+              compact
+              label={inAppNotifications ? 'In-app on' : 'In-app off'}
+              onPress={() => setInAppNotifications((currentValue) => !currentValue)}
+              variant={inAppNotifications ? 'secondary' : 'ghost'}
+            />
+            <Button
+              compact
+              disabled={pushLoading}
+              label={pushLoading ? 'Enabling...' : pushEnabled ? 'Push enabled' : 'Enable push'}
+              onPress={() => {
+                void handleEnablePush();
+              }}
+              variant={pushEnabled ? 'secondary' : 'ghost'}
+            />
+          </View>
+          <InlineNotice
+            message="Notification routes can open event details, communities, private event messages, galleries, and payment status. Missing targets fall back to this profile view."
+            tone="accent"
+          />
+        </Surface>
+      ) : null}
+
+      {props.session.authenticated ? (
+        <Surface style={styles.sectionCard}>
+          <SectionHeader
+            subtitle={`${unreadCount} unread | synced from /api/notifications`}
             title="Notifications"
           />
           {notifications.length === 0 ? (
@@ -449,6 +668,21 @@ export function ProfileScreen(props: {
                   variant="ghost"
                 />
               ) : null}
+              {notification.targetUrl ? (
+                <Button
+                  compact
+                  label={notificationRouteLabel(notification)}
+                  onPress={() => {
+                    void props.onOpenRoute(resolveNotificationRoute(notification));
+                  }}
+                  variant="secondary"
+                />
+              ) : (
+                <InlineNotice
+                  message="This notification has no mobile destination."
+                  tone="accent"
+                />
+              )}
             </Surface>
           ))}
         </Surface>
@@ -464,6 +698,13 @@ export function ProfileScreen(props: {
             <EmptyState
               message="Recommendations will appear here after the next successful backend refresh."
               title="No recommendation data yet"
+            />
+          ) : null}
+          {recommendations ? (
+            <InlineNotice
+              message={`CTR ${recommendations.modelSummary.ctrWeight.toFixed(2)} | RSVP ${recommendations.modelSummary.rsvpWeight.toFixed(2)} | Network ${recommendations.modelSummary.networkWeight.toFixed(2)} | ${recommendations.modelSummary.fallbackActive ? 'Fallback still active' : 'Learning tuned live'}`}
+              tone="accent"
+              title="Recommendation model"
             />
           ) : null}
           {recommendationSections().map((section) => (
@@ -498,7 +739,7 @@ export function ProfileScreen(props: {
                         <Text style={styles.analyticsTitle}>{item.group.name}</Text>
                         <Text style={styles.notificationBody}>{item.group.description}</Text>
                         <Text style={styles.analyticsMeta}>
-                          {item.group.memberCount} members · {item.group.discussionCount} discussions
+                          {item.group.memberCount} members | {item.group.discussionCount} discussions
                         </Text>
                         <View style={styles.quickActions}>
                           {item.reasons.slice(0, 2).map((reason) => (
@@ -524,15 +765,129 @@ export function ProfileScreen(props: {
             <MetricTile label="Total views" value={String(analytics.totalViews)} />
             <MetricTile label="Total RSVPs" value={String(analytics.totalRsvps)} />
             <MetricTile label="Avg conversion" value={formatPercent(analytics.averageConversionRate)} />
+            <MetricTile label="Shares" value={String(analytics.totalShares)} />
+            <MetricTile label="Invites" value={String(analytics.totalInvites)} />
           </View>
+          <Surface style={styles.analyticsCard}>
+            <Text style={styles.analyticsTitle}>Growth funnel</Text>
+            <Text style={styles.analyticsMeta}>
+              {analytics.funnel.discoveryViews} discovery views | {analytics.funnel.eventClicks} clicks | {analytics.funnel.rsvps} RSVPs | {analytics.repeatGuestCount} repeat guests
+            </Text>
+          </Surface>
           {analytics.eventStats.map((stat) => (
             <Surface key={stat.eventId} style={styles.analyticsCard}>
               <Text style={styles.analyticsTitle}>{stat.event.title}</Text>
               <Text style={styles.analyticsMeta}>
-                {stat.views} views · {stat.clicks} clicks · {stat.rsvps} RSVPs · {formatPercent(stat.conversionRate)} conversion
+                {stat.views} views | {stat.clicks} clicks | {stat.rsvps} RSVPs | {stat.shares} shares | {stat.invitesSent} invites | {formatPercent(stat.conversionRate)} conversion
               </Text>
             </Surface>
           ))}
+          {analytics.communityStats.map((community) => (
+            <Surface key={community.groupId} style={styles.analyticsCard}>
+              <Text style={styles.analyticsTitle}>{community.name}</Text>
+              <Text style={styles.analyticsMeta}>
+                {community.memberCount} members | {community.discussionActivity} discussion touches | {formatPercent(community.retentionScore)} retention signal
+              </Text>
+            </Surface>
+          ))}
+        </Surface>
+      ) : null}
+
+      {organizerInsights || experiments || marketplace || recommendationLearning ? (
+        <Surface style={styles.sectionCard}>
+          <SectionHeader
+            subtitle="Phase 7 organizer intelligence now sits beside the familiar analytics stack."
+            title="Organizer intelligence"
+          />
+          {organizerInsights ? (
+            <>
+              <View style={styles.metricRow}>
+                <MetricTile label="AI suggestions" value={String(organizerInsights.growthSuggestions.length)} />
+                <MetricTile label="Accepted AI" value={String(organizerInsights.aiUsageSummary.accepted)} />
+                <MetricTile label="Avg AI lift" value={formatPercent(organizerInsights.aiUsageSummary.averageEstimatedLift)} />
+              </View>
+              {organizerInsights.eventInsights.map((insight) => (
+                <Surface key={insight.eventId} style={styles.analyticsCard}>
+                  <Text style={styles.analyticsTitle}>{insight.title}</Text>
+                  <Text style={styles.analyticsMeta}>
+                    Predicted attendance {insight.attendancePrediction} | Drop-off {capitalizeLabel(insight.dropOffRisk)} | Status {capitalizeLabel(insight.status)}
+                  </Text>
+                  {insight.recommendedActions.map((action) => (
+                    <Text key={action.id} style={styles.notificationBody}>
+                      {action.title}: {action.body}
+                    </Text>
+                  ))}
+                </Surface>
+              ))}
+              {organizerInsights.communityHealth.map((community) => (
+                <Surface key={community.groupId} style={styles.analyticsCard}>
+                  <Text style={styles.analyticsTitle}>{community.name}</Text>
+                  <Text style={styles.analyticsMeta}>
+                    {capitalizeLabel(community.status.replace(/_/g, ' '))} | Engagement {community.engagementScore}
+                  </Text>
+                  <Text style={styles.notificationBody}>{community.reasons.join(' ')}</Text>
+                </Surface>
+              ))}
+            </>
+          ) : null}
+          {recommendationLearning ? (
+            <Surface style={styles.analyticsCard}>
+              <Text style={styles.analyticsTitle}>Recommendation tuning</Text>
+              <Text style={styles.analyticsMeta}>
+                Sample size {recommendationLearning.model.sampleSize} | CTR {recommendationLearning.model.ctrWeight.toFixed(2)} | Behavior {recommendationLearning.model.behaviorWeight.toFixed(2)} | Regional {recommendationLearning.model.regionalWeight.toFixed(2)} | Time {recommendationLearning.model.timeWeight.toFixed(2)}
+              </Text>
+              <Text style={styles.notificationBody}>
+                {recommendationLearning.model.fallbackActive
+                  ? 'Fallback logic is still active while the system gathers more interaction data.'
+                  : 'Learning weights now have enough signal to tune recommendations more confidently.'}
+              </Text>
+              <Text style={styles.notificationBody}>
+                {recommendationLearning.model.explainabilityNotes.join(' ')}
+              </Text>
+            </Surface>
+          ) : null}
+          {recommendationLearning ? (
+            <Surface style={styles.analyticsCard}>
+              <Text style={styles.analyticsTitle}>Likely next touches</Text>
+              {recommendationLearning.topEvents.slice(0, 3).map((item) => (
+                <Text key={item.eventId} style={styles.notificationBody}>
+                  {item.title}: {item.tunedScore.toFixed(1)} score | {item.reasons.join(' ')}
+                </Text>
+              ))}
+              {recommendationLearning.topGroups.slice(0, 3).map((item) => (
+                <Text key={item.groupId} style={styles.notificationBody}>
+                  {item.name}: {item.signal ? item.signal.tunedScore.toFixed(1) : '0.0'} score |{' '}
+                  {item.signal ? item.signal.reasons.join(' ') : 'No signal yet.'}
+                </Text>
+              ))}
+            </Surface>
+          ) : null}
+          {experiments ? (
+            <Surface style={styles.analyticsCard}>
+              <Text style={styles.analyticsTitle}>Experiments and feature flags</Text>
+              <Text style={styles.analyticsMeta}>
+                {experiments.assignments.length} experiments | {experiments.featureFlags.filter((flag) => flag.enabled).length} enabled flags
+              </Text>
+              {experiments.assignments.map((assignment) => (
+                <Text key={assignment.experiment.key} style={styles.notificationBody}>
+                  {assignment.experiment.name}: {assignment.assignment?.variantKey ?? assignment.experiment.defaultVariant}
+                </Text>
+              ))}
+            </Surface>
+          ) : null}
+          {marketplace ? (
+            <Surface style={styles.analyticsCard}>
+              <Text style={styles.analyticsTitle}>Marketplace readiness</Text>
+              <Text style={styles.analyticsMeta}>
+                {marketplace.featuredListings.length} ranked listings | {marketplace.topOrganizers.length} trusted organizers
+              </Text>
+              {marketplace.topOrganizers.slice(0, 3).map((organizer) => (
+                <Text key={organizer.organizerId} style={styles.notificationBody}>
+                  {organizer.organizerName}: {organizer.rating.toFixed(1)} rating across {organizer.reviewCount} reviews
+                </Text>
+              ))}
+            </Surface>
+          ) : null}
         </Surface>
       ) : null}
     </ScrollView>

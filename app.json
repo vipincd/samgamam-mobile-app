@@ -1,10 +1,11 @@
 {
   "expo": {
-    "name": "mobile-app",
-    "slug": "mobile-app",
+    "name": "Samgamam",
+    "slug": "samgamam-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "scheme": "samgamam",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -13,6 +14,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.samgamam.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Samgamam uses the camera only when you choose to share a memory from an event.",
+        "NSPhotoLibraryUsageDescription": "Samgamam needs photo access so you can upload memories from events you joined."
+      },
       "supportsTablet": true
     },
     "android": {
@@ -21,13 +27,32 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
+      "package": "com.samgamam.app",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_MEDIA_IMAGES"
+      ],
       "predictiveBackGestureEnabled": false
+    },
+    "notification": {
+      "color": "#D45A3A",
+      "icon": "./assets/icon.png"
+    },
+    "extra": {
+      "apiBaseUrlStrategy": "Set EXPO_PUBLIC_API_URL for staging and production builds. Local emulator fallback is development-only."
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Samgamam needs photo access so you can upload memories from events you joined."
+        }
+      ],
+      "expo-notifications"
     ]
   }
 }

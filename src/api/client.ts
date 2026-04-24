@@ -2,18 +2,46 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import type {
+  AIGrowthInsightsResponse,
+  AIUsageMetricRecord,
   AnalyticsOverview,
   AuthSessionResponse,
   CopilotAction,
   CopilotResponse,
+  ContinuityResponse,
   DiscussionListResponse,
   EventListResponse,
+  EventAttendeePreview,
+  EventConversationDetail,
+  EventConversationListResponse,
+  EventConversationReport,
+  EventPhotoListResponse,
+  EventPhotoReportItem,
+  EventPhotoItem,
+  ExperimentEventRecord,
+  ExperimentOverviewResponse,
+  DataPlatformOverviewResponse,
+  DeveloperOverviewResponse,
+  DeveloperApiKeyRecord,
+  IntegrationOverviewResponse,
   GroupListResponse,
   HealthResponse,
   HelpResponse,
   LoginResponse,
+  MarketplaceBidRecord,
+  MarketplaceOverviewResponse,
+  OrganizationOverviewResponse,
   NotificationListResponse,
+  OrganizerInsightsResponse,
+  PaymentCheckoutResponse,
+  PaymentInspection,
+  PlatformOverviewResponse,
   RecommendationsResponse,
+  RecommendationInteractionRecord,
+  RecommendationLearningResponse,
+  ReputationOverviewResponse,
+  SafetyOverviewResponse,
+  SocialGraphOverviewResponse,
   RsvpResponse,
   RsvpState,
   SearchResponse,
@@ -21,6 +49,7 @@ import type {
 
 const ACCESS_TOKEN_KEY = 'samgamam.access_token';
 const API_BASE_URL_KEY = 'samgamam.api_base_url';
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
 let secureStoreAvailable: boolean | null = null;
 
@@ -74,7 +103,11 @@ function normalizeBaseUrl(value: string | null | undefined) {
 function resolveBaseUrl(override?: string | null) {
   const fallbackUrl =
     Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
-  const configuredUrl = override ?? process.env.EXPO_PUBLIC_API_URL ?? fallbackUrl;
+  const isDevelopmentBuild = typeof __DEV__ === 'boolean' ? __DEV__ : process.env.NODE_ENV !== 'production';
+  const configuredUrl =
+    override ??
+    process.env.EXPO_PUBLIC_API_URL ??
+    (isDevelopmentBuild ? fallbackUrl : 'https://samgamam.app');
   return normalizeBaseUrl(configuredUrl) ?? fallbackUrl;
 }
 
@@ -113,6 +146,10 @@ function readApiError(payload: unknown) {
     code: undefined,
     message: undefined,
   };
+}
+
+function isFormDataBody(value: unknown) {
+  return typeof FormData !== 'undefined' && value instanceof FormData;
 }
 
 export class ApiError extends Error {
@@ -211,7 +248,7 @@ class ApiClient {
 
     headers.set('Accept', 'application/json');
 
-    if (options.body && !headers.has('Content-Type')) {
+    if (options.body && !headers.has('Content-Type') && !isFormDataBody(options.body)) {
       headers.set('Content-Type', 'application/json');
     }
 
@@ -221,20 +258,34 @@ class ApiClient {
 
     let response: Response;
 
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => {
+      timeoutController.abort();
+    }, DEFAULT_REQUEST_TIMEOUT_MS);
+
     try {
       response = await fetch(`${this.getApiUrl()}${endpoint}`, {
         ...options,
         headers,
+        signal: options.signal ?? timeoutController.signal,
       });
     } catch (error) {
+      const isAbort =
+        error instanceof Error &&
+        (error.name === 'AbortError' || error.message.toLowerCase().includes('aborted'));
+
       throw new ApiError(
-        `Unable to reach Samgamam at ${this.getBaseUrl()}. Check the backend URL and try again.`,
+        isAbort
+          ? `Samgamam did not respond within ${Math.round(DEFAULT_REQUEST_TIMEOUT_MS / 1000)} seconds. Check your network and try again.`
+          : `Unable to reach Samgamam at ${this.getBaseUrl()}. Check the backend URL and try again.`,
         {
-          code: 'network_error',
+          code: isAbort ? 'request_timeout' : 'network_error',
           details: error,
           status: 0,
         },
       );
+    } finally {
+      clearTimeout(timeout);
     }
 
     const contentType = response.headers.get('content-type') ?? '';
@@ -319,6 +370,197 @@ class ApiClient {
     });
   }
 
+  async createDiscussionWithKind(
+    groupId: string,
+    body: string,
+    options?: {
+      kind?: 'announcement' | 'discussion' | 'reflection';
+      pinned?: boolean;
+      replyToId?: string | null;
+    },
+  ) {
+    return this.request<{
+      post: DiscussionListResponse['discussions'][number];
+    }>(`/groups/${encodeURIComponent(groupId)}/discussions`, {
+      body: JSON.stringify({
+        body,
+        kind: options?.kind,
+        pinned: options?.pinned ?? false,
+        replyToId: options?.replyToId ?? undefined,
+      }),
+      method: 'POST',
+    });
+  }
+
+  async reactToDiscussion(
+    postId: string,
+    reaction: 'acknowledge' | 'celebrate' | 'like',
+  ) {
+    return this.request<{
+      post: DiscussionListResponse['discussions'][number];
+    }>(`/discussions/${encodeURIComponent(postId)}/reactions`, {
+      body: JSON.stringify({ reaction }),
+      method: 'POST',
+    });
+  }
+
+  async getEventThreads(eventId: string, locale?: string) {
+    return this.request<DiscussionListResponse>(
+      `/events/${encodeURIComponent(eventId)}/threads${buildQuery({ locale })}`,
+    );
+  }
+
+  async getEventConversations(eventId: string, options?: { page?: number; pageSize?: number }) {
+    return this.request<EventConversationListResponse>(
+      `/events/${encodeURIComponent(eventId)}/conversations${buildQuery({
+        page: options?.page ?? 1,
+        pageSize: options?.pageSize ?? 20,
+      })}`,
+    );
+  }
+
+  async startEventConversation(eventId: string, participantId: string) {
+    return this.request<{
+      conversation: EventConversationDetail;
+      created: boolean;
+    }>(
+      `/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(participantId)}/conversation`,
+      {
+        method: 'POST',
+      },
+    );
+  }
+
+  async getConversation(conversationId: string, options?: { page?: number; pageSize?: number }) {
+    return this.request<{ conversation: EventConversationDetail; eventId: string }>(
+      `/conversations/${encodeURIComponent(conversationId)}${buildQuery({
+        page: options?.page ?? 1,
+        pageSize: options?.pageSize ?? 25,
+      })}`,
+    );
+  }
+
+  async sendConversationMessage(conversationId: string, body: string) {
+    return this.request<{
+      conversation: EventConversationDetail;
+      message: EventConversationDetail['messages'][number];
+    }>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      body: JSON.stringify({ body }),
+      method: 'POST',
+    });
+  }
+
+  async muteConversation(conversationId: string) {
+    return this.request<{ conversation: EventConversationDetail }>(
+      `/conversations/${encodeURIComponent(conversationId)}/mute`,
+      {
+        method: 'POST',
+      },
+    );
+  }
+
+  async reportConversation(conversationId: string, reason: string, messageId?: string) {
+    return this.request<{ report: EventConversationReport }>(
+      `/conversations/${encodeURIComponent(conversationId)}/report`,
+      {
+        body: JSON.stringify({ messageId, reason }),
+        method: 'POST',
+      },
+    );
+  }
+
+  async createEventThreadPost(
+    eventId: string,
+    body: string,
+    options?: {
+      kind?: 'announcement' | 'discussion' | 'reflection';
+    },
+  ) {
+    return this.request<{
+      post: DiscussionListResponse['discussions'][number];
+    }>(`/events/${encodeURIComponent(eventId)}/threads`, {
+      body: JSON.stringify({
+        body,
+        kind: options?.kind ?? 'discussion',
+      }),
+      method: 'POST',
+    });
+  }
+
+  async getEventAttendees(eventId: string) {
+    return this.request<{ attendees: EventAttendeePreview[] }>(
+      `/events/${encodeURIComponent(eventId)}/attendees`,
+    );
+  }
+
+  async getEventPhotos(eventId: string, options?: { includeModeration?: boolean; page?: number; pageSize?: number }) {
+    return this.request<EventPhotoListResponse>(
+      `/events/${encodeURIComponent(eventId)}/photos${buildQuery({
+        includeModeration: options?.includeModeration ? 'true' : undefined,
+        page: options?.page ?? 1,
+        pageSize: options?.pageSize ?? 24,
+      })}`,
+    );
+  }
+
+  async uploadEventPhoto(
+    eventId: string,
+    input: {
+      caption?: string;
+      fileName: string;
+      mimeType: string;
+      uri: string;
+    },
+  ) {
+    const formData = new FormData();
+
+    formData.append('file', {
+      name: input.fileName,
+      type: input.mimeType,
+      uri: input.uri,
+    } as unknown as Blob);
+
+    if (input.caption?.trim()) {
+      formData.append('caption', input.caption.trim());
+    }
+
+    return this.request<{ photo: EventPhotoItem }>(
+      `/events/${encodeURIComponent(eventId)}/photos`,
+      {
+        body: formData,
+        method: 'POST',
+      },
+    );
+  }
+
+  async updateEventPhoto(
+    eventId: string,
+    photoId: string,
+    input: {
+      caption?: string;
+      featured?: boolean;
+      moderationReason?: string;
+      status?: EventPhotoItem['status'];
+    },
+  ) {
+    return this.request<{ photo: EventPhotoItem }>(
+      `/events/${encodeURIComponent(eventId)}/photos/${encodeURIComponent(photoId)}`,
+      {
+        body: JSON.stringify(input),
+        method: 'PATCH',
+      },
+    );
+  }
+
+  async removeEventPhoto(eventId: string, photoId: string) {
+    return this.request<{ photo: EventPhotoItem }>(
+      `/events/${encodeURIComponent(eventId)}/photos/${encodeURIComponent(photoId)}`,
+      {
+        method: 'DELETE',
+      },
+    );
+  }
+
   async rsvpToEvent(eventId: string, state: RsvpState = 'going') {
     return this.request<RsvpResponse>(`/events/${encodeURIComponent(eventId)}/rsvp`, {
       body: JSON.stringify({ state }),
@@ -326,8 +568,25 @@ class ApiClient {
     });
   }
 
+  async reportEventPhoto(eventId: string, photoId: string, reason: string) {
+    return this.request<{ report: EventPhotoReportItem }>(
+      `/events/${encodeURIComponent(eventId)}/photos/${encodeURIComponent(photoId)}/report`,
+      {
+        body: JSON.stringify({ reason }),
+        method: 'POST',
+      },
+    );
+  }
+
   async getNotifications() {
     return this.request<NotificationListResponse>('/notifications');
+  }
+
+  async registerPushToken(token: string, platform: 'android' | 'ios' | 'web') {
+    return this.request<{ success: boolean }>('/users/push-tokens', {
+      body: JSON.stringify({ platform, token }),
+      method: 'POST',
+    });
   }
 
   async markNotificationRead(notificationId: string) {
@@ -344,8 +603,179 @@ class ApiClient {
     );
   }
 
+  async startEventCheckout(input: {
+    eventId: string;
+    locale?: string;
+    provider?: 'manual' | 'paddle' | 'stripe';
+  }) {
+    return this.request<PaymentCheckoutResponse>(
+      `/payments${buildQuery({ locale: input.locale })}`,
+      {
+        body: JSON.stringify({
+          eventId: input.eventId,
+          provider: input.provider,
+        }),
+        method: 'POST',
+      },
+    );
+  }
+
+  async getPaymentStatus(input: {
+    checkoutSessionId?: string;
+    locale?: string;
+    paymentId?: string;
+  }) {
+    return this.request<{ inspection: PaymentInspection }>(
+      `/payments${buildQuery({
+        checkoutSessionId: input.checkoutSessionId,
+        locale: input.locale,
+        paymentId: input.paymentId,
+      })}`,
+    );
+  }
+
+  async getContinuity(limit = 4, locale?: string) {
+    return this.request<ContinuityResponse>(
+      `/continuity${buildQuery({ limit, locale })}`,
+    );
+  }
+
   async getAnalytics() {
     return this.request<AnalyticsOverview>('/analytics');
+  }
+
+  async getOrganizerInsights() {
+    return this.request<OrganizerInsightsResponse>('/organizer/insights');
+  }
+
+  async getSocialGraph(locale?: string) {
+    return this.request<SocialGraphOverviewResponse>(
+      `/social-graph${buildQuery({ locale })}`,
+    );
+  }
+
+  async getReputation(locale?: string) {
+    return this.request<ReputationOverviewResponse>(
+      `/reputation${buildQuery({ locale })}`,
+    );
+  }
+
+  async getIntegrations(locale?: string) {
+    return this.request<IntegrationOverviewResponse>(
+      `/integrations${buildQuery({ locale })}`,
+    );
+  }
+
+  async getPlatform(locale?: string) {
+    return this.request<PlatformOverviewResponse>(
+      `/platform${buildQuery({ locale })}`,
+    );
+  }
+
+  async getOrganizations(locale?: string) {
+    return this.request<OrganizationOverviewResponse>(
+      `/organizations${buildQuery({ locale })}`,
+    );
+  }
+
+  async getDataPlatform(locale?: string) {
+    return this.request<DataPlatformOverviewResponse>(
+      `/data-platform${buildQuery({ locale })}`,
+    );
+  }
+
+  async getSafety(locale?: string) {
+    return this.request<SafetyOverviewResponse>(
+      `/safety${buildQuery({ locale })}`,
+    );
+  }
+
+  async getDeveloper(locale?: string) {
+    return this.request<DeveloperOverviewResponse>(
+      `/developer${buildQuery({ locale })}`,
+    );
+  }
+
+  async createDeveloperKey(input: {
+    label: string;
+    rateLimitPerMinute?: number;
+    scopes: string[];
+  }) {
+    return this.request<{ key: DeveloperApiKeyRecord; secret: string }>('/developer', {
+      body: JSON.stringify(input),
+      method: 'POST',
+    });
+  }
+
+  async getAiInsights(options?: { eventId?: string; groupId?: string }) {
+    return this.request<AIGrowthInsightsResponse>(
+      `/ai/insights${buildQuery({
+        eventId: options?.eventId,
+        groupId: options?.groupId,
+      })}`,
+    );
+  }
+
+  async markAiInsightStatus(input: {
+    estimatedLift: number;
+    feature: AIUsageMetricRecord['feature'];
+    status: 'accepted' | 'dismissed';
+    targetId: string;
+    targetType: AIUsageMetricRecord['targetType'];
+  }) {
+    return this.request<{ metric: AIUsageMetricRecord }>('/ai/insights', {
+      body: JSON.stringify(input),
+      method: 'PATCH',
+    });
+  }
+
+  async getMarketplace(locale?: string) {
+    return this.request<MarketplaceOverviewResponse>(
+      `/marketplace${buildQuery({ locale })}`,
+    );
+  }
+
+  async placeMarketplaceBid(eventId: string, bidCents: number) {
+    return this.request<{ bid: MarketplaceBidRecord }>('/marketplace', {
+      body: JSON.stringify({ bidCents, eventId }),
+      method: 'PATCH',
+    });
+  }
+
+  async getExperiments() {
+    return this.request<ExperimentOverviewResponse>('/experiments');
+  }
+
+  async trackExperiment(input: {
+    experimentKey: string;
+    type: 'exposure' | 'conversion';
+    variantKey: string;
+  }) {
+    return this.request<{ event: ExperimentEventRecord }>('/experiments', {
+      body: JSON.stringify(input),
+      method: 'POST',
+    });
+  }
+
+  async getRecommendationTuning(locale?: string) {
+    return this.request<RecommendationLearningResponse>(
+      `/recommendations/tune${buildQuery({ locale })}`,
+    );
+  }
+
+  async recordRecommendationInteraction(input: {
+    section: string;
+    targetId: string;
+    targetType: 'event' | 'group';
+    type: 'view' | 'click' | 'rsvp' | 'join' | 'dismiss';
+  }) {
+    return this.request<{ interaction: RecommendationInteractionRecord }>(
+      '/recommendations/tune',
+      {
+        body: JSON.stringify(input),
+        method: 'POST',
+      },
+    );
   }
 
   async searchHelp(query: string) {

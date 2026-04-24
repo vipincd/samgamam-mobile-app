@@ -73,7 +73,7 @@ export function HelpScreen(props: {
       const response = await apiClient.askCopilot(action, copilotPrompt.trim());
       setCopilotResult(response.content);
       setCopilotMeta(
-        `Audit log ${response.logId} · ${response.requiresHumanReview ? 'Human review required' : 'Ready to use'}`,
+        `Audit log ${response.logId} | ${response.requiresHumanReview ? 'Human review required' : 'Ready to use'}`,
       );
     } catch (copilotError) {
       setError(getErrorMessage(copilotError));
@@ -192,6 +192,17 @@ export function HelpScreen(props: {
             }}
             style={styles.flexButton}
             variant="secondary"
+          />
+        </View>
+        <View style={styles.row}>
+          <Button
+            disabled={!copilotPrompt.trim() || !canUseCopilot || copilotLoading !== null}
+            label={copilotLoading === 'suggest_share_text' ? 'Drafting...' : 'Suggest share text'}
+            onPress={() => {
+              void handleCopilot('suggest_share_text');
+            }}
+            style={styles.flexButton}
+            variant="ghost"
           />
         </View>
         {copilotResult ? (
