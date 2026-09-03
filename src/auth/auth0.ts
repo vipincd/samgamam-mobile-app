@@ -1,7 +1,7 @@
 import Auth0, { AuthError, CredentialsManagerError, WebAuthError } from 'react-native-auth0';
 
 const LOCAL_AUTH_SCHEME = 'samgamam';
-const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
+const DEFAULT_SCOPES = ['openid', 'profile', 'email', 'offline_access'];
 
 export type AuthConfiguration = {
   domain: string;
@@ -15,6 +15,8 @@ export type AuthSessionState =
   | { status: 'unconfigured' }
   | { status: 'signed-out' }
   | { status: 'signed-in'; expiresAt?: string };
+
+export type VerifiedAccessTokenMetadata = { issuer: string; audience: string[] };
 
 export type AuthenticationErrorKind = 'configuration' | 'cancelled' | 'network' | 'credentials' | 'provider';
 
@@ -69,12 +71,24 @@ export function createAuthenticationClient(configuration = readAuthConfiguration
     async logout() {
       try {
         await auth0.webAuth.clearSession({}, {customScheme: configuration.customScheme});
-      } catch (error) { throw mapError(error); }
+      } catch (error) {
+        throw mapError(error);
+      } finally {
+        await auth0.credentialsManager.clearCredentials();
+      }
     },
 
     async getAccessToken(minimumTtlSeconds = 60): Promise<string> {
       try {
         const credentials = await auth0.credentialsManager.getCredentials(undefined, minimumTtlSeconds);
+        if (!credentials.accessToken) throw new AuthenticationError('credentials');
+        return credentials.accessToken;
+      } catch (error) { throw mapError(error); }
+    },
+
+    async refreshAccessToken(): Promise<string> {
+      try {
+        const credentials = await auth0.credentialsManager.getCredentials(undefined, 60, {}, true);
         if (!credentials.accessToken) throw new AuthenticationError('credentials');
         return credentials.accessToken;
       } catch (error) { throw mapError(error); }
@@ -91,6 +105,30 @@ export function createAuthenticationClient(configuration = readAuthConfiguration
       } catch (error) { throw mapError(error); }
     },
   };
+}
+
+function decodeJwtPayload(accessToken: string): Record<string, unknown> {
+  const payload = accessToken.split('.')[1];
+  if (!payload) throw new AuthenticationError('credentials');
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = globalThis.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+    return JSON.parse(decoded) as Record<string, unknown>;
+  } catch {
+    throw new AuthenticationError('credentials');
+  }
+}
+
+export function inspectAccessToken(accessToken: string, configuration = readAuthConfiguration()): VerifiedAccessTokenMetadata {
+  const claims = decodeJwtPayload(accessToken);
+  const issuer = typeof claims.iss === 'string' ? claims.iss : '';
+  const audience = Array.isArray(claims.aud)
+    ? claims.aud.filter((entry): entry is string => typeof entry === 'string')
+    : typeof claims.aud === 'string' ? [claims.aud] : [];
+  if (issuer !== `https://${configuration.domain}/` || !audience.includes(configuration.audience)) {
+    throw new AuthenticationError('credentials');
+  }
+  return {issuer, audience};
 }
 
 export const authRedirectDesign = {
