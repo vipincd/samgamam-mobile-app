@@ -27,9 +27,9 @@ export class AuthenticationError extends Error {
   }
 }
 
-function validateIdentifier(name: string, value: string | undefined, maximum: number): string {
+function validateIdentifier(name: string, value: string | undefined, maximum: number, allowUrl = false): string {
   const normalized = value?.trim();
-  if (!normalized || normalized.length > maximum || /\s|:\/\//.test(normalized)) {
+  if (!normalized || normalized.length > maximum || /\s/.test(normalized) || (!allowUrl && /:\/\//.test(normalized))) {
     throw new AuthenticationError('configuration');
   }
   return normalized;
@@ -39,7 +39,7 @@ export function readAuthConfiguration(): AuthConfiguration {
   const domain = validateIdentifier('domain', process.env.EXPO_PUBLIC_AUTH0_DOMAIN, 253).toLowerCase();
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain)) throw new AuthenticationError('configuration');
   const clientId = validateIdentifier('client ID', process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID, 256);
-  const audience = validateIdentifier('audience', process.env.EXPO_PUBLIC_AUTH0_AUDIENCE, 1_024);
+  const audience = validateIdentifier('audience', process.env.EXPO_PUBLIC_AUTH0_AUDIENCE, 1_024, true);
   return {domain, clientId, audience, scopes: DEFAULT_SCOPES, customScheme: LOCAL_AUTH_SCHEME};
 }
 
@@ -61,10 +61,11 @@ export function createAuthenticationClient(configuration = readAuthConfiguration
     async login(additionalScopes: readonly string[] = []) {
       try {
         const scopes = [...new Set([...configuration.scopes, ...additionalScopes])];
-        await auth0.webAuth.authorize(
+        const credentials = await auth0.webAuth.authorize(
           {audience: configuration.audience, scope: scopes.join(' ')},
           {customScheme: configuration.customScheme},
         );
+        await auth0.credentialsManager.saveCredentials(credentials);
       } catch (error) { throw mapError(error); }
     },
 

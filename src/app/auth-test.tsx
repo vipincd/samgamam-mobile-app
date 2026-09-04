@@ -48,15 +48,25 @@ function NativeAuthTest() {
     return () => clearTimeout(task);
   }, [reloadSession]);
 
-  const perform = async (action: () => Promise<void>) => {
+  const perform = async (action: () => Promise<void>, missingCredentialsMessage?: string) => {
     setBusy(true);
-    try { await action(); } catch (error) { setMessage(safeError(error)); } finally { setBusy(false); }
+    try {
+      await action();
+    } catch (error) {
+      setMessage(
+        missingCredentialsMessage && error instanceof AuthenticationError && error.kind === 'credentials'
+          ? missingCredentialsMessage
+          : safeError(error),
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const validateToken = async (refresh: boolean) => {
     const token = refresh ? await client.refreshAccessToken() : await client.getAccessToken();
     setTokenMetadata(inspectAccessToken(token));
-    setMessage(refresh ? 'Rotated refresh credentials produced a valid API access token.' : 'Credentials Manager returned a valid API access token.');
+    setMessage(refresh ? 'Forced Credentials Manager refresh produced a valid API access token.' : 'Credentials Manager returned a valid API access token.');
   };
 
   const callBackend = async () => {
@@ -86,10 +96,10 @@ function NativeAuthTest() {
           </ThemedView>
           <View style={styles.actions}>
             <Button title="Sign in with Auth0" disabled={busy} onPress={() => perform(async () => { await client.login(); await reloadSession(); setMessage('Universal Login returned to the app.'); })} />
-            <Button title="Check credentials" disabled={busy} onPress={() => perform(async () => validateToken(false))} />
+            <Button title="Check credentials" disabled={busy} onPress={() => perform(async () => validateToken(false), 'No stored credentials.')} />
             <Button title="Force refresh test" disabled={busy} onPress={() => perform(async () => validateToken(true))} />
-            <Button title="Call development backend" disabled={busy} onPress={() => perform(callBackend)} />
-            <Button title="Sign out and clear credentials" disabled={busy} onPress={() => perform(async () => { await client.logout(); setPrincipal(null); setTokenMetadata(null); await reloadSession(); setMessage('Browser session and local credentials cleared.'); })} />
+            <Button title="Call development backend" disabled={busy} onPress={() => perform(callBackend, 'Backend call blocked: sign-in required.')} />
+            <Button title="Sign out and clear credentials" disabled={busy} onPress={() => perform(async () => { await client.logout(); setPrincipal(null); setTokenMetadata(null); await reloadSession(); setMessage('Local credentials cleared.'); })} />
           </View>
           {tokenMetadata && <ThemedView type="backgroundElement" style={styles.panel}>
             <ThemedText type="subtitle">Validated token metadata</ThemedText>
