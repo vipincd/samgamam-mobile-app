@@ -13,12 +13,14 @@ import { apiClient, getErrorMessage } from './src/api/client';
 import type { AuthSessionResponse } from './src/api/types';
 import { InlineNotice } from './src/components/ui';
 import { DiscoverScreen } from './src/screens/DiscoverScreen';
+import { AuthTestScreen } from './src/screens/AuthTestScreen';
 import { GroupsScreen } from './src/screens/GroupsScreen';
 import { HelpScreen } from './src/screens/HelpScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { theme } from './src/theme';
 
-type TabKey = 'discover' | 'groups' | 'help' | 'profile';
+type ProductionTabKey = 'discover' | 'groups' | 'help' | 'profile';
+type TabKey = ProductionTabKey | 'auth-test';
 
 const defaultSession: AuthSessionResponse = {
   authenticated: false,
@@ -26,12 +28,26 @@ const defaultSession: AuthSessionResponse = {
   viewer: null,
 };
 
-const tabs: Array<{ key: TabKey; label: string; hint: string }> = [
+export const productionTabs: Array<{
+  key: ProductionTabKey;
+  label: string;
+  hint: string;
+}> = [
   { key: 'discover', label: 'Discover', hint: 'Events' },
   { key: 'groups', label: 'Groups', hint: 'Community' },
   { key: 'help', label: 'Help', hint: 'AI guide' },
   { key: 'profile', label: 'Profile', hint: 'Account' },
 ];
+
+export function getTabs(isDevelopment: boolean): Array<{
+  key: TabKey;
+  label: string;
+  hint: string;
+}> {
+  return isDevelopment
+    ? [...productionTabs, { key: 'auth-test', label: 'Auth Test', hint: 'Dev only' }]
+    : productionTabs;
+}
 
 function normalizeSession(session: AuthSessionResponse | null | undefined): AuthSessionResponse {
   return {
@@ -110,6 +126,7 @@ export default function App() {
     locale,
     onRequestSignIn: openProfileTab,
   };
+  const tabs = getTabs(__DEV__);
 
   let screen = (
     <DiscoverScreen
@@ -154,6 +171,8 @@ export default function App() {
         session={session}
       />
     );
+  } else if (__DEV__ && activeTab === 'auth-test') {
+    screen = <AuthTestScreen />;
   }
 
   if (bootstrapping) {
