@@ -117,10 +117,70 @@ The P2 is resolved at the implementation and automated action-regression level. 
 
 Changed files for this follow-up only: `src/auth/auth0.ts`, `src/screens/AuthTestScreen.tsx`, `src/screens/AuthTestScreen.test.ts`, and this document. Product authentication, backend behavior, dependencies, environment configuration, and Auth0 settings were not changed. No staging, commit, push, merge, PR, or deployment occurred.
 
-### Proposed commit scope (nothing staged or committed)
+### Historical proposed commit scope (superseded by the final review below)
 
 For this documentation-only closeout, the proposed file is `AUTH0-PHASE-2D.md`, with message `docs(auth): record canonical Phase 2E verification and review limits`. This document is currently untracked; committing it alone would document implementation that remains uncommitted.
 
 If a later, separately authorized implementation commit is desired, the reviewed candidate list is `App.tsx`, `package.json`, `package-lock.json`, `.env.example`, `app.config.ts`, `eslint.config.js`, `jest.setup.js`, `App.test.ts`, `app.config.test.ts`, `src/api/client.test.ts`, `src/auth/auth0.ts`, `src/auth/config.ts`, `src/auth/auth0.test.ts`, `src/screens/AuthTestScreen.tsx`, `src/screens/AuthTestScreen.test.ts`, and `AUTH0-PHASE-2D.md`. Suggested message: `feat(auth): add isolated development Auth0 verification`. The P2 follow-up above is now included in that uncommitted implementation. Exclude `.env.local`, all generated native files, caches, and backend files.
 
 Only this Markdown document was edited during the original documentation closeout; the separately authorized P2 follow-up has the four-file scope listed above. Neither task staged, committed, pushed, merged, opened a PR, deployed, or switched product authentication.
+
+
+## Final Phase 2D/2E readiness review — 2026-09-09
+
+### Repository and instructions
+
+Canonical repository: `/Users/vidas/dev/projects/samgamammobile`, remote `https://github.com/vipincd/samgamam-mobile-app.git`, branch `feature/integrate-auth0-phase-2d`, HEAD `4712c1144fb8298dfb700e9d0651fb6eadecd286` (`feat(auth): add isolated Phase 2E Auth0 verification`). The working tree and index were clean at the start of this review. Contrary to the historical closeout above, all 16 implementation/documentation files are already committed in this HEAD, whose parent is `480e8aebd1eb329bf9f74d0be95c657bbb0c0e4a`. No commit was made by this review.
+
+No `AGENTS.md` was found in the mobile repository or its ancestor directories. The adjacent backend's `AGENTS.md` was read; its Next.js guide requirement applies before writing backend code. No backend code was written. The backend remains on HEAD `5f673b2578a80e5570bb65475b542bb73afce2bf` with a clean working tree.
+
+### Actual simulator smoke test: PASS within the requested scope
+
+The booted simulator was iPhone 17, iOS 26.5. The installed `com.samgamam.mobile` application was already running. Its installation was confirmed through `simctl get_app_container`; its `mobileapp` process had established connections to canonical Metro on port `8082`.
+
+Both requested services already existed: Metro PID `28701` had working directory `/Users/vidas/dev/projects/samgamammobile`, and backend PID `28674` had working directory `/Users/vidas/dev/projects/samgamam` and listened on `3002`. Metro's `/status` returned `packager-status:running`. Neither service was started or restarted.
+
+Using Simulator UI, this review selected the existing Auth Test tab from Discover. The screen mounted and remained visible without a runtime-error overlay or crash. It displayed `signed-in`, safe expiry metadata `2026-09-09T19:52:12.000Z`, and “Ready. Credentials and tokens are never displayed or logged.” This agrees with the source path: initial state is signed-out, and the automatic credential check supplies signed-in plus expiry only after Credentials Manager reports usable credentials. This verifies the observed local authentication display, not independent provider/session validity or backend acceptance.
+
+No sign-in, credential-check button, forced-refresh, backend-call, or logout action was triggered. No rebuild, reinstall, app-data clearing, or product-authentication modification occurred. The screen's existing automatic mount check ran normally; no assertion is made about SDK-internal renewal during that check. Credentials, authentication responses, and local environment contents were not inspected.
+
+### Source review and remaining finding
+
+The complete 16-file implementation change from `480e8ae` to `4712c11` was reviewed, including navigation/configuration isolation, SDK helper, screen, test setup, six logout regressions, product-token regression, dependency manifests, and documentation. The scoped logout P2 remains resolved: logout rejection is sanitized and retained; reconciliation determines the returned display state; a failed reconciliation returns exactly `{ status: 'unknown' }` without stale expiry; success is claimed only for verified signed-out state. The screen applies both returned values, renders unknown with a neutral pill, and shows expiry only when present. Repository-wide references show no other production consumer of `AuthSessionState` requiring an unknown-state update.
+
+**Remaining P2 follow-up outside the scoped logout fix:** `src/screens/AuthTestScreen.tsx:73-88` initializes a configured client as signed-out before verification, and `reloadSession()` only replaces state on success. If the mount credential check rejects, its catch changes only the message, leaving an unverified signed-out pill. A failed reload after another action can similarly preserve older state/expiry. The six logout tests do not cover these paths. A future isolated follow-up should use unknown while state is unverified and after failed non-logout reconciliation. This is a source finding, not a failure observed in this smoke test; no authentication code was changed here. It does not reopen the corrected logout path or block a commit scoped to that fix and its documented limits.
+
+Product API/authentication implementation and product screens are unchanged in the implementation commit. Dependency manifests agree; lockfile review found 530 added, 3 removed, and 141 changed package records, all HTTP-resolved packages using `registry.npmjs.org`, with no local/link dependencies. The broad tooling/dependency churn remains part of the reviewed implementation, not a new dependency audit or production certification.
+
+### Reused checks and limitations
+
+The committed closeout reports post-fix `npm test` passing 5 suites / 19 tests, typecheck passing, and lint passing with 6 existing product-screen warnings and no errors. The checked-in helper and six regressions match the documented follow-up, the working tree was clean, and this review changed no source, tests, or dependencies. Those results are reused as reported evidence rather than represented as newly executed checks. The historical report does not contain an independently recorded per-file test-run hash. The backend HEAD is unchanged from the reported 11-test pass; that result is also reused. Additional checks addressed current gaps only: service identity/status, simulator observation, state-consumer search, manifest/lockfile consistency, and diff whitespace validation.
+
+Native logout failure-path verification remains **untested**. The six regressions use mocked clients and do not exercise a rendered screen or native failure. The earlier “Open debugger to view warnings” banner remains **unclassified**; it was not visible in this smoke-test screenshot, which does not diagnose or resolve its earlier cause. No new sign-in, refresh, logout, authenticated backend, provider SSO, token equality/rotation/reuse, physical-device, Android, release-build, or production-readiness verification is claimed.
+
+### Precise commit scope and readiness
+
+The implementation is suitable for the limited development-verification scope, with the remaining non-logout state finding and verification limits above. It is already committed as `4712c11`; do not create a duplicate implementation commit.
+
+The full reviewed implementation file list, relative to the canonical repository, is:
+
+- `.env.example`
+- `App.tsx`
+- `App.test.ts`
+- `app.config.ts`
+- `app.config.test.ts`
+- `eslint.config.js`
+- `jest.setup.js`
+- `package.json`
+- `package-lock.json`
+- `src/api/client.test.ts`
+- `src/auth/auth0.ts`
+- `src/auth/auth0.test.ts`
+- `src/auth/config.ts`
+- `src/screens/AuthTestScreen.tsx`
+- `src/screens/AuthTestScreen.test.ts`
+- `AUTH0-PHASE-2D.md`
+
+The existing implementation message is `feat(auth): add isolated Phase 2E Auth0 verification`. The only proposed new commit content is this updated `AUTH0-PHASE-2D.md`, with message `docs(auth): record final Phase 2D/2E simulator readiness review`. This documentation follow-up is ready for a scoped commit.
+
+Exclude `.env.local`, other local environment files, generated `ios/` and `android/` files, caches, backend files, and unrelated work. `.env.example` is the intentional public placeholder template already tracked; `.env.local`, `ios/`, and `android/` remain ignored. This review modified only this document and performed no staging, commit, push, merge, PR creation, or deployment.
