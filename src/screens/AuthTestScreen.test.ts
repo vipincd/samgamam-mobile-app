@@ -3,7 +3,7 @@ import {
   type AuthenticationClient,
   type AuthSessionState,
 } from '../auth/auth0';
-import { callAuth0PocBackend, logoutAndReconcileSession } from './AuthTestScreen';
+import { callAuth0PocBackend, logoutAndReconcileSession, reconcileSession } from './AuthTestScreen';
 
 describe('Auth Test logout session reconciliation', () => {
   const providerError = new AuthenticationError('network');
@@ -90,5 +90,24 @@ describe('Auth0 development backend call', () => {
       callAuth0PocBackend(client, fetchImplementation as never),
     ).rejects.toEqual(new AuthenticationError('credentials'));
     expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+});
+
+describe('Auth0 credential reconciliation', () => {
+  it('uses unknown state rather than a stale signed-out state when credential lookup fails', async () => {
+    const client = {
+      checkCredentials: jest.fn().mockRejectedValue(new AuthenticationError('network')),
+    } as unknown as AuthenticationClient;
+
+    await expect(reconcileSession(client)).resolves.toEqual({
+      session: {status: 'unknown'},
+      message: 'Authentication could not reach the provider.',
+    });
+  });
+
+  it('uses unconfigured state only when no configured client exists', async () => {
+    await expect(reconcileSession(undefined)).resolves.toEqual({
+      session: {status: 'unconfigured'},
+    });
   });
 });

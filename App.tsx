@@ -1,13 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
+  AccessibilityInfo,
   Pressable,
-  SafeAreaView,
+
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import * as SplashScreen from 'expo-splash-screen';
+import { Compass, UsersRound, MessageCircle, UserRound, FlaskConical } from 'lucide-react-native';
+import { brand } from './src/brand';
+import { BrandedLaunch } from './src/startup/BrandedLaunch';
+import { useLaunchResources } from './src/startup/useLaunchResources';
+
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
+SplashScreen.setOptions({ fade: false });
+const hideNativeSplash = () => { void SplashScreen.hideAsync().catch(() => undefined); };
+const tabIcons = { discover: Compass, groups: UsersRound, help: MessageCircle, profile: UserRound, 'auth-test': FlaskConical };
 
 import { apiClient, getErrorMessage } from './src/api/client';
 import type { AuthSessionResponse } from './src/api/types';
@@ -17,7 +28,7 @@ import { AuthTestScreen } from './src/screens/AuthTestScreen';
 import { GroupsScreen } from './src/screens/GroupsScreen';
 import { HelpScreen } from './src/screens/HelpScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
-import { theme } from './src/theme';
+
 
 type ProductionTabKey = 'discover' | 'groups' | 'help' | 'profile';
 type TabKey = ProductionTabKey | 'auth-test';
@@ -58,6 +69,13 @@ function normalizeSession(session: AuthSessionResponse | null | undefined): Auth
 }
 
 export default function App() {
+  return <SafeAreaProvider><AppContent /></SafeAreaProvider>;
+}
+
+function AppContent() {
+  const resources = useLaunchResources();
+  const [slowStartup, setSlowStartup] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('discover');
   const [session, setSession] = useState<AuthSessionResponse>(defaultSession);
   const [apiBaseUrl, setApiBaseUrl] = useState(apiClient.getBaseUrl());
@@ -89,7 +107,20 @@ export default function App() {
 
   useEffect(() => {
     void bootstrapApp();
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+      SplashScreen.setOptions({ fade: !reduced, duration: 160 });
+    });
+    const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', (reduced) => {
+      SplashScreen.setOptions({ fade: !reduced, duration: 160 });
+    });
+    return () => motion.remove();
   }, []);
+
+  useEffect(() => {
+    if (!bootstrapping) { setSlowStartup(false); return; }
+    const timer = setTimeout(() => setSlowStartup(true), 10000);
+    return () => clearTimeout(timer);
+  }, [bootstrapping]);
 
   async function handleSaveApiBaseUrl(value: string | null) {
     const nextBaseUrl = await apiClient.setApiBaseUrl(value);
@@ -175,33 +206,27 @@ export default function App() {
     screen = <AuthTestScreen />;
   }
 
-  if (bootstrapping) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="dark" />
-        <View style={styles.loadingScreen}>
-          <View style={styles.loadingCard}>
-            <ActivityIndicator color={theme.colors.accent} size="large" />
-            <Text style={styles.loadingTitle}>Preparing Samgamam Mobile</Text>
-            <Text style={styles.loadingSubtitle}>
-              Checking the backend connection and restoring your session.
-            </Text>
-          </View>
-        </View>
-      </SafeAreaView>
-    );
+  if (!resources.ready || (bootstrapping && !recovering)) {
+    return <View style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <BrandedLaunch onReady={hideNativeSplash} slow={slowStartup && resources.ready}
+        assetError={resources.error} onRetry={resources.retry} onRecover={() => {
+          setRecovering(true);
+          setActiveTab('profile');
+        }} />
+    </View>;
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']} onLayout={hideNativeSplash}>
       <StatusBar style="dark" />
       <View style={styles.container}>
         {connectionError ? (
           <View style={styles.banner}>
             <InlineNotice
-              message={`${connectionError} You can update the backend URL from the Profile tab.`}
+              message="Check your connection or update the backend URL in Profile."
               tone="warning"
-              title="Connection needs attention"
+              title="You’re offline"
             />
           </View>
         ) : null}
@@ -209,19 +234,20 @@ export default function App() {
         <View style={styles.tabBar}>
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key;
+            const Icon = tabIcons[tab.key];
 
             return (
               <Pressable
-                accessibilityRole="button"
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={tab.label}
                 key={tab.key}
                 onPress={() => setActiveTab(tab.key)}
-                style={[styles.tabButton, isActive ? styles.tabButtonActive : undefined]}
+                style={({ pressed }) => [styles.tabButton, pressed && { opacity: 0.65 }]}
               >
+                <View style={[styles.iconWell, isActive && styles.iconWellActive]}><Icon size={21} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? brand.primaryStrong : brand.muted} /></View>
                 <Text style={[styles.tabLabel, isActive ? styles.tabLabelActive : undefined]}>
                   {tab.label}
-                </Text>
-                <Text style={[styles.tabHint, isActive ? styles.tabHintActive : undefined]}>
-                  {tab.hint}
                 </Text>
               </Pressable>
             );
@@ -233,88 +259,15 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    backgroundColor: theme.colors.background,
-    flex: 1,
-  },
-  container: {
-    backgroundColor: theme.colors.background,
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-  },
-  loadingScreen: {
-    alignItems: 'center',
-    backgroundColor: theme.colors.background,
-    flex: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  loadingCard: {
-    alignItems: 'center',
-    backgroundColor: theme.colors.card,
-    borderColor: theme.colors.border,
-    borderRadius: 28,
-    borderWidth: 1,
-    gap: 12,
-    maxWidth: 360,
-    paddingHorizontal: 28,
-    paddingVertical: 32,
-    width: '100%',
-  },
-  loadingTitle: {
-    color: theme.colors.text,
-    fontSize: 24,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  loadingSubtitle: {
-    color: theme.colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  banner: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-  },
-  tabBar: {
-    backgroundColor: theme.colors.card,
-    borderTopColor: theme.colors.border,
-    borderTopWidth: 1,
-    columnGap: 10,
-    flexDirection: 'row',
-    paddingBottom: 16,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-  },
-  tabButton: {
-    alignItems: 'center',
-    backgroundColor: theme.colors.cardAlt,
-    borderRadius: 20,
-    flex: 1,
-    gap: 2,
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-  },
-  tabButtonActive: {
-    backgroundColor: theme.colors.accentSoft,
-  },
-  tabLabel: {
-    color: theme.colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  tabLabelActive: {
-    color: theme.colors.accent,
-  },
-  tabHint: {
-    color: theme.colors.muted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  tabHintActive: {
-    color: theme.colors.accent,
-  },
+  safeArea: { flex: 1, backgroundColor: brand.canvas },
+  container: { flex: 1, backgroundColor: brand.canvas },
+  content: { flex: 1 },
+  banner: { paddingHorizontal: 20, paddingTop: 8 },
+  tabBar: { backgroundColor: brand.surface, borderTopColor: brand.border, borderTopWidth: 1,
+    flexDirection: 'row', paddingTop: 8, paddingBottom: 7, paddingHorizontal: 8 },
+  tabButton: { alignItems: 'center', flex: 1, minHeight: 52, gap: 3 },
+  iconWell: { width: 48, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  iconWellActive: { backgroundColor: brand.primarySoft },
+  tabLabel: { color: brand.muted, fontFamily: brand.fonts.medium, fontSize: 10 },
+  tabLabelActive: { color: brand.primaryStrong },
 });

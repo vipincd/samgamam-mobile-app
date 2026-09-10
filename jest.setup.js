@@ -25,3 +25,31 @@ jest.mock('react-native-auth0', () => {
     WebAuthErrorCodes: { USER_CANCELLED: 'USER_CANCELLED' },
   };
 });
+
+jest.mock('lucide-react-native', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const Icon = () => React.createElement(View);
+
+  return {
+    ArrowRight: Icon,
+    ArrowUpRight: Icon,
+    Check: Icon,
+    Compass: Icon,
+    FlaskConical: Icon,
+    MapPin: Icon,
+    MessageCircle: Icon,
+    Search: Icon,
+    SearchX: Icon,
+    UserRound: Icon,
+    UsersRound: Icon,
+    WifiOff: Icon,
+    X: Icon,
+  };
+});
+
+jest.mock('expo-splash-screen', () => ({
+  hideAsync: jest.fn(async () => undefined),
+  preventAutoHideAsync: jest.fn(async () => undefined),
+  setOptions: jest.fn(),
+}));

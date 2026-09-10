@@ -40,6 +40,23 @@ export async function logoutAndReconcileSession(
   }
 }
 
+export async function reconcileSession(
+  client: AuthenticationClient | undefined,
+): Promise<{ session: AuthSessionState; message?: string }> {
+  if (!client) {
+    return {session: {status: 'unconfigured'}};
+  }
+
+  try {
+    return {session: await client.checkCredentials()};
+  } catch (error) {
+    return {
+      session: {status: 'unknown'},
+      message: getSanitizedAuthMessage(error),
+    };
+  }
+}
+
 export async function callAuth0PocBackend(
   client: AuthenticationClient,
   fetchImplementation: typeof fetch = fetch,
@@ -71,21 +88,22 @@ function NativeAuthTestScreen() {
     }
   }, []);
   const [session, setSession] = useState<AuthSessionState>(
-    client ? { status: 'signed-out' } : { status: 'unconfigured' },
+    client ? { status: 'unknown' } : { status: 'unconfigured' },
   );
   const [message, setMessage] = useState(INITIAL_MESSAGE);
   const [busy, setBusy] = useState(false);
 
   const reloadSession = useCallback(async () => {
-    if (!client) {
-      setSession({ status: 'unconfigured' });
-      return;
+    setSession(client ? {status: 'unknown'} : {status: 'unconfigured'});
+    const result = await reconcileSession(client);
+    setSession(result.session);
+    if (result.message) {
+      setMessage(result.message);
     }
-    setSession(await client.checkCredentials());
   }, [client]);
 
   useEffect(() => {
-    void reloadSession().catch((error) => setMessage(getSanitizedAuthMessage(error)));
+    void reloadSession();
   }, [reloadSession]);
 
   async function perform(action: (activeClient: AuthenticationClient) => Promise<void>) {

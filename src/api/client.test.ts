@@ -50,3 +50,44 @@ describe('existing product API authentication', () => {
     );
   });
 });
+
+describe('development LAN backend URLs', () => {
+  const originalDevelopmentDescriptor = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
+
+  afterEach(() => {
+    if (originalDevelopmentDescriptor) {
+      Object.defineProperty(globalThis, '__DEV__', originalDevelopmentDescriptor);
+    }
+  });
+
+  it.each(['10.1.2.3', '172.16.0.1', '172.31.255.254', '192.168.0.77'])(
+    'allows private HTTP host %s in development',
+    async (host) => {
+      Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: true });
+      const url = `http://${host}:3002`;
+      await expect(apiClient.setApiBaseUrl(url)).resolves.toBe(url);
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith('samgamam.api_base_url', url);
+    },
+  );
+
+  it.each(['172.15.255.255', '172.32.0.1', '192.169.0.1', 'example.com', '8.8.8.8'])(
+    'rejects non-private HTTP host %s even in development',
+    async (host) => {
+      Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: true });
+      await expect(apiClient.setApiBaseUrl(`http://${host}:3002`)).rejects.toThrow('requires HTTPS');
+    },
+  );
+
+  it.each(['10.1.2.3', '172.16.0.1', '192.168.0.77'])(
+    'retains release HTTPS requirements for private host %s',
+    async (host) => {
+      Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: false });
+      await expect(apiClient.setApiBaseUrl(`http://${host}:3002`)).rejects.toThrow('requires HTTPS');
+    },
+  );
+
+  it('does not allow other protocols for development LAN hosts', async () => {
+    Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: true });
+    await expect(apiClient.setApiBaseUrl('ftp://192.168.0.77')).rejects.toThrow('requires HTTPS');
+  });
+});

@@ -63,8 +63,16 @@ function normalizeBaseUrl(value: string | null | undefined) {
 
   const parsed = new URL(value.trim());
   const localHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
+  const octets = parsed.hostname.split('.').map(Number);
+  const privateLanHost =
+    octets.length === 4 &&
+    octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
+    (octets[0] === 10 ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168));
+  const developmentLanHttp = __DEV__ && parsed.protocol === 'http:' && privateLanHost;
 
-  if (parsed.protocol !== 'https:' && !localHosts.has(parsed.hostname)) {
+  if (parsed.protocol !== 'https:' && !localHosts.has(parsed.hostname) && !developmentLanHttp) {
     throw new Error('Samgamam requires HTTPS outside local development.');
   }
 

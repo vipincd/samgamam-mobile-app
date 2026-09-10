@@ -45,6 +45,7 @@ describe('Auth0 Expo configuration', () => {
     delete process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID;
     delete process.env.EXPO_PUBLIC_AUTH0_DOMAIN;
     const unconfigured = appConfig({ config: {} } as never);
-    expect(unconfigured.plugins).toEqual(['expo-secure-store']);
+    expect(unconfigured.plugins).toContain('expo-secure-store');
+    expect(unconfigured.plugins).not.toContainEqual(expect.arrayContaining(['react-native-auth0']));
   });
 });
