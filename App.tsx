@@ -14,6 +14,7 @@ import { Compass, UsersRound, MessageCircle, UserRound, FlaskConical } from 'luc
 import { brand } from './src/brand';
 import { BrandedLaunch } from './src/startup/BrandedLaunch';
 import { useLaunchResources } from './src/startup/useLaunchResources';
+import { within } from './src/startup/within';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 SplashScreen.setOptions({ fade: false });
@@ -68,6 +69,65 @@ function normalizeSession(session: AuthSessionResponse | null | undefined): Auth
   };
 }
 
+export type ProductAuthStatus =
+  | 'unresolved'
+  | 'authenticated'
+  | 'signed-out'
+  | 'reconciliation-failed';
+
+export interface ProductAuthState {
+  status: ProductAuthStatus;
+  session: AuthSessionResponse;
+  errorMessage: string | null;
+}
+
+export async function reconcileProductSession(
+  client: typeof apiClient,
+): Promise<ProductAuthState> {
+  const hasToken = client.hasStoredAccessToken();
+
+  if (!hasToken) {
+    return {
+      status: 'signed-out',
+      session: defaultSession,
+      errorMessage: null,
+    };
+  }
+
+  try {
+    const rawSession = await client.getSession();
+    const session = normalizeSession(rawSession);
+
+    if (session.authenticated) {
+      return {
+        status: 'authenticated',
+        session,
+        errorMessage: null,
+      };
+    }
+
+    return {
+      status: 'signed-out',
+      session: defaultSession,
+      errorMessage: null,
+    };
+  } catch (error) {
+    if (!client.hasStoredAccessToken()) {
+      return {
+        status: 'signed-out',
+        session: defaultSession,
+        errorMessage: null,
+      };
+    }
+
+    return {
+      status: 'reconciliation-failed',
+      session: defaultSession,
+      errorMessage: getErrorMessage(error),
+    };
+  }
+}
+
 export default function App() {
   return <SafeAreaProvider><AppContent /></SafeAreaProvider>;
 }
@@ -77,29 +137,35 @@ function AppContent() {
   const [slowStartup, setSlowStartup] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('discover');
-  const [session, setSession] = useState<AuthSessionResponse>(defaultSession);
+  const [authState, setAuthState] = useState<ProductAuthState>({
+    status: 'unresolved',
+    session: defaultSession,
+    errorMessage: null,
+  });
   const [apiBaseUrl, setApiBaseUrl] = useState(apiClient.getBaseUrl());
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
 
   async function refreshSession() {
-    const nextSession = await apiClient.getSession();
-    const normalized = normalizeSession(nextSession);
-    setSession(normalized);
-    setConnectionError(null);
-    return normalized;
+    const nextState = await reconcileProductSession(apiClient);
+    setAuthState(nextState);
+    return nextState.session;
   }
 
   async function bootstrapApp() {
     setBootstrapping(true);
 
     try {
-      const bootstrapState = await apiClient.initialize();
+      const bootstrapState = await within(apiClient.initialize(), 8000);
       setApiBaseUrl(bootstrapState.apiBaseUrl);
-      await refreshSession();
+      await within(refreshSession(), 8000);
     } catch (error) {
-      setConnectionError(getErrorMessage(error));
-      setSession(defaultSession);
+      const hasToken = apiClient.hasStoredAccessToken();
+      const errorMsg = getErrorMessage(error);
+      setAuthState({
+        status: hasToken ? 'reconciliation-failed' : 'signed-out',
+        session: defaultSession,
+        errorMessage: errorMsg,
+      });
     } finally {
       setBootstrapping(false);
     }
@@ -131,26 +197,32 @@ function AppContent() {
 
   async function handleLogin(email: string, password: string) {
     const response = await apiClient.login(email, password);
-    setSession(
-      normalizeSession({
+    setAuthState({
+      status: 'authenticated',
+      session: normalizeSession({
         authenticated: true,
         locale: response.locale,
         viewer: response.viewer,
       }),
-    );
-    setConnectionError(null);
+      errorMessage: null,
+    });
   }
 
   async function handleLogout() {
     await apiClient.logout();
-    setSession(defaultSession);
-    setConnectionError(null);
+    setAuthState({
+      status: 'signed-out',
+      session: defaultSession,
+      errorMessage: null,
+    });
   }
 
   function openProfileTab() {
     setActiveTab('profile');
   }
 
+  const session = authState.session;
+  const connectionError = authState.errorMessage;
   const locale = session.locale ?? 'en';
   const sharedScreenProps = {
     isFocused: false,
@@ -199,6 +271,7 @@ function AppContent() {
           await refreshSession();
         }}
         onSaveApiBaseUrl={handleSaveApiBaseUrl}
+        authStatus={authState.status}
         session={session}
       />
     );

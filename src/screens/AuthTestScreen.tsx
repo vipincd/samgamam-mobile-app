@@ -40,6 +40,30 @@ export async function logoutAndReconcileSession(
   }
 }
 
+export async function executeAndReconcile(
+  client: AuthenticationClient,
+  action: (activeClient: AuthenticationClient) => Promise<string>,
+): Promise<{ session: AuthSessionState; message: string }> {
+  try {
+    const successMessage = await action(client);
+    const reconciliation = await reconcileSession(client);
+    return {
+      session: reconciliation.session,
+      message: successMessage,
+    };
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error && /^backend_status_\d{3}$/.test(error.message)
+        ? 'The development backend rejected the request.'
+        : getSanitizedAuthMessage(error);
+    const reconciliation = await reconcileSession(client);
+    return {
+      session: reconciliation.session,
+      message: errorMessage,
+    };
+  }
+}
+
 export async function reconcileSession(
   client: AuthenticationClient | undefined,
 ): Promise<{ session: AuthSessionState; message?: string }> {
@@ -106,7 +130,7 @@ function NativeAuthTestScreen() {
     void reloadSession();
   }, [reloadSession]);
 
-  async function perform(action: (activeClient: AuthenticationClient) => Promise<void>) {
+  async function perform(action: (activeClient: AuthenticationClient) => Promise<string>) {
     if (!client) {
       setMessage(getSanitizedAuthMessage(new AuthenticationError('configuration')));
       return;
@@ -114,13 +138,9 @@ function NativeAuthTestScreen() {
 
     setBusy(true);
     try {
-      await action(client);
-    } catch (error) {
-      if (error instanceof Error && /^backend_status_\d{3}$/.test(error.message)) {
-        setMessage('The development backend rejected the request.');
-      } else {
-        setMessage(getSanitizedAuthMessage(error));
-      }
+      const result = await executeAndReconcile(client, action);
+      setSession(result.session);
+      setMessage(result.message);
     } finally {
       setBusy(false);
     }
@@ -156,8 +176,7 @@ function NativeAuthTestScreen() {
           onPress={() =>
             void perform(async (activeClient) => {
               await activeClient.login();
-              await reloadSession();
-              setMessage('Universal Login returned successfully.');
+              return 'Universal Login returned successfully.';
             })
           }
         />
@@ -167,8 +186,7 @@ function NativeAuthTestScreen() {
           onPress={() =>
             void perform(async (activeClient) => {
               await activeClient.getAccessToken();
-              await reloadSession();
-              setMessage('Credentials Manager returned usable credentials.');
+              return 'Credentials Manager returned usable credentials.';
             })
           }
           variant="secondary"
@@ -179,8 +197,7 @@ function NativeAuthTestScreen() {
           onPress={() =>
             void perform(async (activeClient) => {
               await activeClient.getAccessToken(true);
-              await reloadSession();
-              setMessage('Credentials Manager completed a forced refresh.');
+              return 'Credentials Manager completed a forced refresh.';
             })
           }
           variant="secondary"
@@ -191,7 +208,7 @@ function NativeAuthTestScreen() {
           onPress={() =>
             void perform(async (activeClient) => {
               await callAuth0PocBackend(activeClient);
-              setMessage('The development backend accepted the Auth0 credential.');
+              return 'The development backend accepted the Auth0 credential.';
             })
           }
           variant="secondary"
@@ -200,11 +217,20 @@ function NativeAuthTestScreen() {
           disabled={busy}
           label="Sign out and clear credentials"
           onPress={() =>
-            void perform(async (activeClient) => {
-              const result = await logoutAndReconcileSession(activeClient);
-              setSession(result.session);
-              setMessage(result.message);
-            })
+            void (async () => {
+              if (!client) {
+                setMessage(getSanitizedAuthMessage(new AuthenticationError('configuration')));
+                return;
+              }
+              setBusy(true);
+              try {
+                const result = await logoutAndReconcileSession(client);
+                setSession(result.session);
+                setMessage(result.message);
+              } finally {
+                setBusy(false);
+              }
+            })()
           }
           variant="ghost"
         />

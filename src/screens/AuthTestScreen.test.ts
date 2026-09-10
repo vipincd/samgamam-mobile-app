@@ -3,7 +3,7 @@ import {
   type AuthenticationClient,
   type AuthSessionState,
 } from '../auth/auth0';
-import { callAuth0PocBackend, logoutAndReconcileSession, reconcileSession } from './AuthTestScreen';
+import { callAuth0PocBackend, executeAndReconcile, logoutAndReconcileSession, reconcileSession } from './AuthTestScreen';
 
 describe('Auth Test logout session reconciliation', () => {
   const providerError = new AuthenticationError('network');
@@ -108,6 +108,58 @@ describe('Auth0 credential reconciliation', () => {
   it('uses unconfigured state only when no configured client exists', async () => {
     await expect(reconcileSession(undefined)).resolves.toEqual({
       session: {status: 'unconfigured'},
+    });
+  });
+});
+
+describe('Auth Test non-logout action execution and reconciliation', () => {
+  const signedIn: AuthSessionState = {
+    status: 'signed-in',
+    expiresAt: '2033-05-18T03:33:20.000Z',
+  };
+
+  it('reconciles session after successful action', async () => {
+    const client = {
+      checkCredentials: jest.fn().mockResolvedValue(signedIn),
+    } as unknown as AuthenticationClient;
+
+    const action = jest.fn().mockResolvedValue('Action succeeded.');
+    const result = await executeAndReconcile(client, action);
+
+    expect(result).toEqual({
+      session: signedIn,
+      message: 'Action succeeded.',
+    });
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(client.checkCredentials).toHaveBeenCalledTimes(1);
+  });
+
+  it('transitions to unknown when action fails and credentials cannot be confirmed', async () => {
+    const client = {
+      checkCredentials: jest.fn().mockRejectedValue(new AuthenticationError('network')),
+    } as unknown as AuthenticationClient;
+
+    const action = jest.fn().mockRejectedValue(new AuthenticationError('network'));
+    const result = await executeAndReconcile(client, action);
+
+    expect(result).toEqual({
+      session: { status: 'unknown' },
+      message: 'Authentication could not reach the provider.',
+    });
+    expect(client.checkCredentials).toHaveBeenCalledTimes(1);
+  });
+
+  it('sanitizes backend HTTP status errors without exposing internal traces', async () => {
+    const client = {
+      checkCredentials: jest.fn().mockResolvedValue(signedIn),
+    } as unknown as AuthenticationClient;
+
+    const action = jest.fn().mockRejectedValue(new Error('backend_status_500'));
+    const result = await executeAndReconcile(client, action);
+
+    expect(result).toEqual({
+      session: signedIn,
+      message: 'The development backend rejected the request.',
     });
   });
 });

@@ -90,4 +90,27 @@ describe('development LAN backend URLs', () => {
     Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: true });
     await expect(apiClient.setApiBaseUrl('ftp://192.168.0.77')).rejects.toThrow('requires HTTPS');
   });
+
+  it.each(['localhost', '127.0.0.1', '10.0.2.2'])(
+    'rejects loopback HTTP host %s in release mode',
+    async (host) => {
+      Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: false });
+      await expect(apiClient.setApiBaseUrl(`http://${host}:3000`)).rejects.toThrow('requires HTTPS');
+    },
+  );
+
+  it.each(['localhost', '127.0.0.1', '10.0.2.2'])(
+    'allows loopback HTTP host %s in development mode',
+    async (host) => {
+      Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: true });
+      const url = `http://${host}:3000`;
+      await expect(apiClient.setApiBaseUrl(url)).resolves.toBe(url);
+    },
+  );
+
+  it('accepts HTTPS URLs in release mode', async () => {
+    Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: false });
+    const url = 'https://samgamam.vercel.app';
+    await expect(apiClient.setApiBaseUrl(url)).resolves.toBe(url);
+  });
 });

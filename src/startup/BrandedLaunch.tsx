@@ -22,7 +22,7 @@ export function BrandedLaunch({ onReady, slow, assetError, onRetry, onRecover }:
           </Pressable>
         </> : <>
           <ActivityIndicator color={brand.primary} accessibilityLabel="Preparing Samgamam" />
-          <Text style={styles.copy}>A little closer to your community</Text>
+          <Text style={styles.copy}>{brand.caption}</Text>
         </>}
       </View>
     </View>

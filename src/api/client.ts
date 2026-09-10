@@ -62,26 +62,37 @@ function normalizeBaseUrl(value: string | null | undefined) {
   }
 
   const parsed = new URL(value.trim());
-  const localHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
-  const octets = parsed.hostname.split('.').map(Number);
-  const privateLanHost =
-    octets.length === 4 &&
-    octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
-    (octets[0] === 10 ||
-      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-      (octets[0] === 192 && octets[1] === 168));
-  const developmentLanHttp = __DEV__ && parsed.protocol === 'http:' && privateLanHost;
+  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__);
 
-  if (parsed.protocol !== 'https:' && !localHosts.has(parsed.hostname) && !developmentLanHttp) {
-    throw new Error('Samgamam requires HTTPS outside local development.');
+  if (parsed.protocol === 'https:') {
+    return parsed.origin;
   }
 
-  return parsed.origin;
+  if (isDev && parsed.protocol === 'http:') {
+    const localHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
+    const octets = parsed.hostname.split('.').map(Number);
+    const privateLanHost =
+      octets.length === 4 &&
+      octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
+      (octets[0] === 10 ||
+        (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+        (octets[0] === 192 && octets[1] === 168));
+
+    if (localHosts.has(parsed.hostname) || privateLanHost) {
+      return parsed.origin;
+    }
+  }
+
+  throw new Error('Samgamam requires HTTPS outside local development.');
 }
 
 function resolveBaseUrl(override?: string | null) {
-  const fallbackUrl =
-    Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__);
+  const fallbackUrl = isDev
+    ? Platform.OS === 'android'
+      ? 'http://10.0.2.2:3000'
+      : 'http://localhost:3000'
+    : 'https://samgamam.vercel.app';
   const configuredUrl = override ?? process.env.EXPO_PUBLIC_API_URL ?? fallbackUrl;
   return normalizeBaseUrl(configuredUrl) ?? fallbackUrl;
 }
@@ -159,6 +170,10 @@ class ApiClient {
 
   getBaseUrl() {
     return resolveBaseUrl(this.runtimeBaseUrl);
+  }
+
+  hasStoredAccessToken() {
+    return Boolean(this.accessToken);
   }
 
   private getApiUrl() {

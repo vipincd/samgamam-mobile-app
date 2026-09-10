@@ -56,6 +56,7 @@ const demoAccounts = [
 
 export function ProfileScreen(props: {
   apiBaseUrl: string;
+  authStatus?: 'unresolved' | 'authenticated' | 'signed-out' | 'reconciliation-failed';
   connectionError: string | null;
   isFocused: boolean;
   locale: string;
@@ -333,7 +334,42 @@ export function ProfileScreen(props: {
       {statusMessage ? <InlineNotice message={statusMessage} tone="accent" /> : null}
       {dashboardError ? <InlineNotice message={dashboardError} tone="warning" title="Some data could not load" /> : null}
 
-      {!props.session.authenticated ? (
+      {props.authStatus === 'reconciliation-failed' ? (
+        <Surface style={styles.sectionCard}>
+          <SectionHeader
+            subtitle="Your saved credentials are preserved on this device, but Samgamam could not reach the server to verify your session."
+            title="Session verification paused"
+          />
+          <InlineNotice
+            message={props.connectionError ?? 'Unable to reach backend to verify session while offline.'}
+            tone="warning"
+            title="Verification paused"
+          />
+          <View style={styles.row}>
+            <Button
+              label={authLoading ? 'Verifying...' : 'Retry verification'}
+              onPress={async () => {
+                setAuthLoading(true);
+                try {
+                  await props.onRefreshSession();
+                  await loadDashboard();
+                } finally {
+                  setAuthLoading(false);
+                }
+              }}
+              style={styles.flexButton}
+            />
+            <Button
+              label="Sign out from device"
+              onPress={() => {
+                void handleLogout();
+              }}
+              style={styles.flexButton}
+              variant="ghost"
+            />
+          </View>
+        </Surface>
+      ) : !props.session.authenticated ? (
         <Surface style={styles.sectionCard}>
           <SectionHeader
             subtitle="Use a seeded account so every mobile tab can talk to the existing Next.js security model."
