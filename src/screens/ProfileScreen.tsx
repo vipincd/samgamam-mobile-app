@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   RefreshControl,
   ScrollView,
@@ -72,6 +72,7 @@ export function ProfileScreen(props: {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [healthMessage, setHealthMessage] = useState<string | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const dashboardGen = useRef(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [recommendations, setRecommendations] =
@@ -90,6 +91,7 @@ export function ProfileScreen(props: {
     if (!props.isFocused) {
       return;
     }
+    const thisGen = ++dashboardGen.current;
 
     if (isRefresh) {
       setRefreshing(true);
@@ -122,6 +124,9 @@ export function ProfileScreen(props: {
         : Promise.resolve(null),
     ]);
 
+    if (thisGen !== dashboardGen.current || !props.session.authenticated) {
+      return;
+    }
     const [notificationsResult, recommendationsResult, analyticsResult] = promises;
 
     if (notificationsResult.status === 'fulfilled') {
@@ -168,6 +173,7 @@ export function ProfileScreen(props: {
   }
 
   async function handleLogout() {
+    dashboardGen.current++;
     setAuthLoading(true);
     setStatusMessage(null);
 
@@ -219,8 +225,8 @@ export function ProfileScreen(props: {
     }
   }
 
-  function recommendationSections(): Array<{
-    items: Array<RecommendationItem | GroupRecommendationItem>;
+  type RecommendationSection = {
+    items: (RecommendationItem | GroupRecommendationItem)[];
     key:
       | 'recommendedForYou'
       | 'communitiesYouMayFeelAtHomeIn'
@@ -230,7 +236,9 @@ export function ProfileScreen(props: {
       | 'inYourLanguage';
     title: string;
     kind: 'community' | 'event';
-  }> {
+  };
+
+  function recommendationSections(): RecommendationSection[] {
     if (!recommendations) {
       return [];
     }

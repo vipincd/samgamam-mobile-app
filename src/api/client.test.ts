@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { apiClient } from './client';
+import { apiClient, normalizeEventSummary } from './client';
 
 jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => undefined),
@@ -186,9 +186,9 @@ describe('verified /api/v1 screen contracts', () => {
     expect(calledUrl).toContain('category=culture');
 
     expect(result.events).toHaveLength(2);
-    expect(result.events[0].attendeeCount).toBe(40); // 50 - 10
+    expect(result.events[0].attendeeCount).toBeUndefined(); // never derived from capacity - remainingCapacity
     expect(result.events[1].capacityMode).toBe('unlimited');
-    expect(result.events[1].remainingCapacity).toBe(999);
+    expect(result.events[1].remainingCapacity).toBeNull();
     expect(result.page?.hasNextPage).toBe(true);
     expect(result.page?.nextCursor).toBe('cursor-token-123');
     expect(result.meta?.requestId).toBe('req-abc-1');
@@ -256,7 +256,66 @@ describe('verified /api/v1 screen contracts', () => {
     expect(calledInit.method).toBe('POST');
     expect(JSON.parse(calledInit.body as string)).toEqual({ state: 'going' });
     expect(result.event.viewerRsvpState).toBe('going');
-    expect(result.event.attendeeCount).toBe(15);
+    expect(result.event.attendeeCount).toBeUndefined();
+  });
+
+
+  it('preserves authoritative attendeeCount or goingCount when provided and omits when unavailable', () => {
+    const withCount = normalizeEventSummary({
+      id: 'ev-1',
+      groupId: 'g-1',
+      title: 'Test',
+      description: 'Test',
+      tags: [],
+      category: 'general',
+      languages: ['en'],
+      location: 'Berlin',
+      startsAt: '2026-10-15T18:00:00.000Z',
+      ticketPriceCents: 0,
+      currency: 'EUR',
+      isPaid: false,
+      attendeeCount: 25,
+      capacity: 50,
+      remainingCapacity: 25,
+    });
+    expect(withCount.attendeeCount).toBe(25);
+
+    const withGoingCount = normalizeEventSummary({
+      id: 'ev-2',
+      groupId: 'g-1',
+      title: 'Test',
+      description: 'Test',
+      tags: [],
+      category: 'general',
+      languages: ['en'],
+      location: 'Berlin',
+      startsAt: '2026-10-15T18:00:00.000Z',
+      ticketPriceCents: 0,
+      currency: 'EUR',
+      isPaid: false,
+      goingCount: 18,
+    });
+    expect(withGoingCount.attendeeCount).toBe(18);
+
+    const withoutCount = normalizeEventSummary({
+      id: 'ev-3',
+      groupId: 'g-1',
+      title: 'Test',
+      description: 'Test',
+      tags: [],
+      category: 'general',
+      languages: ['en'],
+      location: 'Berlin',
+      startsAt: '2026-10-15T18:00:00.000Z',
+      ticketPriceCents: 0,
+      currency: 'EUR',
+      isPaid: false,
+      capacity: 100,
+      remainingCapacity: 80,
+    });
+    expect(withoutCount.attendeeCount).toBeUndefined();
+    expect(withoutCount.attendeeCount).not.toBe(0);
+    expect(withoutCount.attendeeCount).not.toBe(20);
   });
 
   it('fetches groups and discussions via /api/v1/groups contracts', async () => {

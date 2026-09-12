@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-} from 'react-native';
+} from "react-native";
 
-import { apiClient, getErrorMessage } from '../api/client';
-import type { DiscussionPost, GroupSummary } from '../api/types';
+import { apiClient, getErrorMessage } from "../api/client";
+import type { DiscussionPost, GroupSummary } from "../api/types";
 import {
   Button,
   EmptyState,
@@ -18,9 +18,9 @@ import {
   ScreenIntro,
   SectionHeader,
   Surface,
-} from '../components/ui';
-import { theme } from '../theme';
-import { capitalizeLabel, formatDateTime } from '../utils/format';
+} from "../components/ui";
+import { theme } from "../theme";
+import { formatDateTime } from "../utils/format";
 
 export function GroupsScreen(props: {
   authenticated: boolean;
@@ -31,7 +31,7 @@ export function GroupsScreen(props: {
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
-  const [draftMessage, setDraftMessage] = useState('');
+  const [draftMessage, setDraftMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [discussionLoading, setDiscussionLoading] = useState(false);
@@ -39,15 +39,25 @@ export function GroupsScreen(props: {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Pagination state
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const selectedGroup =
     groups.find((group) => group.id === selectedGroupId) ?? null;
-  const canOpenSelectedDiscussion = Boolean(
-    props.authenticated && selectedGroup?.viewerMembershipStatus === 'active',
-  );
+
+  // Membership state distinctions
+  const isAnonymous = !props.authenticated;
+  const membershipStatus = selectedGroup?.viewerMembershipStatus ?? null;
+  const isActiveMember = props.authenticated && membershipStatus === "active";
+  const isPendingMember = props.authenticated && membershipStatus === "pending";
+    const canOpenSelectedDiscussion = isActiveMember;
 
   async function loadGroups(isRefresh = false) {
     if (isRefresh) {
       setRefreshing(true);
+      setNextCursor(null);
     } else {
       setLoading(true);
     }
@@ -55,15 +65,22 @@ export function GroupsScreen(props: {
     setError(null);
 
     try {
-      const response = await apiClient.getGroups(props.locale);
+      const response = await apiClient.getGroups({
+        locale: props.locale,
+        limit: 10,
+      });
+
       setGroups(response.groups);
+      setNextCursor(response.page?.nextCursor ?? null);
+      setHasNextPage(Boolean(response.page?.hasNextPage && response.page?.nextCursor));
+
       setSelectedGroupId((currentValue) => {
         if (currentValue && response.groups.some((group) => group.id === currentValue)) {
           return currentValue;
         }
 
         return (
-          response.groups.find((group) => group.viewerMembershipStatus === 'active')?.id ??
+          response.groups.find((group) => group.viewerMembershipStatus === "active")?.id ??
           response.groups[0]?.id ??
           null
         );
@@ -76,16 +93,51 @@ export function GroupsScreen(props: {
     }
   }
 
-  async function loadDiscussions(group: GroupSummary) {
-    if (!props.authenticated) {
-      setDiscussions([]);
-      setNotice('Sign in to read and post in community discussions.');
+  async function loadMoreGroups() {
+    if (!hasNextPage || !nextCursor || loadingMore || loading) {
       return;
     }
 
-    if (group.viewerMembershipStatus !== 'active') {
+    setLoadingMore(true);
+
+    try {
+      const response = await apiClient.getGroups({
+        locale: props.locale,
+        cursor: nextCursor,
+        limit: 10,
+      });
+
+      setGroups((current) => {
+        const existingIds = new Set(current.map((g) => g.id));
+        const newGroups = response.groups.filter((g) => !existingIds.has(g.id));
+        return [...current, ...newGroups];
+      });
+
+      setNextCursor(response.page?.nextCursor ?? null);
+      setHasNextPage(Boolean(response.page?.hasNextPage && response.page?.nextCursor));
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function loadDiscussions(group: GroupSummary) {
+    if (!props.authenticated) {
       setDiscussions([]);
-      setNotice('This preview is public, but discussions are reserved for active members.');
+      setNotice("Sign in to read and post in community discussions.");
+      return;
+    }
+
+    if (group.viewerMembershipStatus === "pending") {
+      setDiscussions([]);
+      setNotice("Your membership request is pending approval by group organizers.");
+      return;
+    }
+
+    if (group.viewerMembershipStatus !== "active") {
+      setDiscussions([]);
+      setNotice("This circle is visible to the community, but discussions are reserved for members.");
       return;
     }
 
@@ -97,7 +149,7 @@ export function GroupsScreen(props: {
       setDiscussions(response.discussions);
       setNotice(
         response.discussions.length === 0
-          ? 'No one has posted yet. Start the conversation.'
+          ? "No one has posted yet. Start the conversation."
           : null,
       );
     } catch (loadError) {
@@ -130,12 +182,17 @@ export function GroupsScreen(props: {
 
     if (!props.authenticated) {
       props.onRequestSignIn();
-      setError('Sign in from Profile to participate in group discussions.');
+      setError("Sign in from Profile to participate in group discussions.");
       return;
     }
 
-    if (selectedGroup.viewerMembershipStatus !== 'active') {
-      setError('Only active members can add a discussion post.');
+    if (selectedGroup.viewerMembershipStatus === "pending") {
+      setError("Your membership is pending approval before you can participate.");
+      return;
+    }
+
+    if (selectedGroup.viewerMembershipStatus !== "active") {
+      setError("You must be an active member to post in this discussion.");
       return;
     }
 
@@ -145,13 +202,26 @@ export function GroupsScreen(props: {
     try {
       const response = await apiClient.createDiscussion(selectedGroup.id, draftMessage.trim());
       setDiscussions((currentDiscussions) => [response.post, ...currentDiscussions]);
-      setDraftMessage('');
-      setNotice('Your discussion post is live.');
+      setDraftMessage("");
+      setNotice("Your discussion post is live.");
     } catch (postError) {
       setError(getErrorMessage(postError));
     } finally {
       setPosting(false);
     }
+  }
+
+  function getMembershipBadge(group: GroupSummary) {
+    if (!props.authenticated) {
+      return { label: "Preview", tone: "default" as const };
+    }
+    if (group.viewerMembershipStatus === "active") {
+      return { label: "Active member", tone: "success" as const };
+    }
+    if (group.viewerMembershipStatus === "pending") {
+      return { label: "Pending approval", tone: "warning" as const };
+    }
+    return { label: "Non-member", tone: "default" as const };
   }
 
   return (
@@ -178,7 +248,7 @@ export function GroupsScreen(props: {
       {notice ? <InlineNotice message={notice} tone="accent" /> : null}
 
       <SectionHeader
-        subtitle={loading ? 'Refreshing group summaries.' : 'Group cards come from /api/groups.'}
+        subtitle={loading ? "Refreshing group summaries." : "Group cards come from /api/v1/groups."}
         title="Community circles"
       />
 
@@ -191,6 +261,7 @@ export function GroupsScreen(props: {
 
       {groups.map((group) => {
         const isSelected = group.id === selectedGroupId;
+        const badge = getMembershipBadge(group);
 
         return (
           <Surface
@@ -201,16 +272,13 @@ export function GroupsScreen(props: {
               <Text style={styles.groupTitle}>{group.name}</Text>
               <View style={styles.badges}>
                 <Pill label={group.category} tone="accent" />
-                <Pill
-                  label={group.viewerMembershipStatus ? capitalizeLabel(group.viewerMembershipStatus) : 'Preview'}
-                  tone={group.viewerMembershipStatus === 'active' ? 'success' : 'default'}
-                />
+                <Pill label={badge.label} tone={badge.tone} />
               </View>
             </View>
             <Text style={styles.groupDescription}>{group.description}</Text>
             <Text style={styles.groupMeta}>
-              {group.memberCount} members · {group.discussionCount} posts
-              {group.requiresApproval ? ' · Approval required' : ''}
+              {group.memberCount} active {group.memberCount === 1 ? "member" : "members"} · {group.discussionCount} {group.discussionCount === 1 ? "post" : "posts"}
+              {group.requiresApproval ? " · Approval required" : ""}
             </Text>
             <View style={styles.badges}>
               {group.tags.slice(0, 4).map((tag) => (
@@ -218,16 +286,27 @@ export function GroupsScreen(props: {
               ))}
             </View>
             <Button
-              label={isSelected ? 'Viewing discussion' : 'Open group'}
+              label={isSelected ? "Viewing circle" : "Open circle"}
               onPress={() => {
                 setSelectedGroupId(group.id);
                 setNotice(null);
               }}
-              variant={isSelected ? 'secondary' : 'ghost'}
+              variant={isSelected ? "secondary" : "ghost"}
             />
           </Surface>
         );
       })}
+
+      {hasNextPage ? (
+        <Button
+          disabled={loadingMore}
+          label={loadingMore ? "Loading more circles..." : "Load more groups"}
+          onPress={() => {
+            void loadMoreGroups();
+          }}
+          variant="ghost"
+        />
+      ) : null}
 
       {selectedGroup ? (
         <Surface style={styles.discussionCard}>
@@ -238,12 +317,22 @@ export function GroupsScreen(props: {
           {!canOpenSelectedDiscussion ? (
             <InlineNotice
               message={
-                props.authenticated
-                  ? 'Join or get approved in this group to read the discussion thread.'
-                  : 'Sign in to open the live discussion feed.'
+                isAnonymous
+                  ? "Sign in to open the live discussion feed."
+                  : isPendingMember
+                    ? "Your membership is awaiting organizer approval. Discussions will unlock once approved."
+                    : selectedGroup.requiresApproval
+                      ? "This circle requires organizer approval to join. Membership is needed to access discussions."
+                      : "You are currently a non-member. Join this group to access discussions."
               }
-              tone="warning"
-              title="Discussion locked"
+              tone={isPendingMember ? "accent" : "warning"}
+              title={
+                isAnonymous
+                  ? "Discussion locked"
+                  : isPendingMember
+                    ? "Membership pending"
+                    : "Members-only discussion"
+              }
             />
           ) : null}
           {discussionLoading ? (
@@ -272,7 +361,15 @@ export function GroupsScreen(props: {
             label="Post to the group"
             multiline
             onChangeText={setDraftMessage}
-            placeholder="Share an update, question, or coordination note"
+            placeholder={
+              canOpenSelectedDiscussion
+                ? "Share an update, question, or coordination note"
+                : isAnonymous
+                  ? "Sign in to participate in group discussions"
+                  : isPendingMember
+                    ? "Posting locked pending membership approval"
+                    : "Posting reserved for group members"
+            }
             style={styles.multilineInput}
             textAlignVertical="top"
             value={draftMessage}
@@ -280,13 +377,13 @@ export function GroupsScreen(props: {
           <View style={styles.row}>
             <Button
               disabled={!draftMessage.trim() || !canOpenSelectedDiscussion || posting}
-              label={posting ? 'Posting...' : 'Post message'}
+              label={posting ? "Posting..." : "Post message"}
               onPress={() => {
                 void handlePostDiscussion();
               }}
               style={styles.flexButton}
             />
-            {!props.authenticated ? (
+            {isAnonymous ? (
               <Button
                 label="Sign in"
                 onPress={props.onRequestSignIn}
@@ -319,7 +416,7 @@ const styles = StyleSheet.create({
   groupTitle: {
     color: theme.colors.text,
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: "800",
     lineHeight: 26,
   },
   groupDescription: {
@@ -330,12 +427,12 @@ const styles = StyleSheet.create({
   groupMeta: {
     color: theme.colors.text,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   badges: {
     columnGap: 8,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     rowGap: 8,
   },
   discussionCard: {
@@ -344,7 +441,7 @@ const styles = StyleSheet.create({
   loadingText: {
     color: theme.colors.muted,
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
   },
   post: {
     backgroundColor: theme.colors.cardAlt,
@@ -353,14 +450,14 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   postHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   postAuthor: {
     color: theme.colors.text,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   postBody: {
     color: theme.colors.text,
@@ -370,14 +467,14 @@ const styles = StyleSheet.create({
   postMeta: {
     color: theme.colors.muted,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   multilineInput: {
     minHeight: 110,
   },
   row: {
     columnGap: 12,
-    flexDirection: 'row',
+    flexDirection: "row",
   },
   flexButton: {
     flex: 1,

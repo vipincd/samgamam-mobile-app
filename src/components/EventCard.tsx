@@ -34,7 +34,7 @@ export function EventCard(props: {
         <Text style={styles.metaLine}>{formatEventDate(event.startsAt, props.locale)}</Text>
         <Text style={styles.metaLine}>{event.location}</Text>
         <Text style={styles.metaLine}>
-          {formatCurrency(event.ticketPriceCents, event.currency, props.locale)} · {event.attendeeCount} attending
+          {formatCurrency(event.ticketPriceCents, event.currency, props.locale)}{typeof event.attendeeCount === 'number' ? ` · ${event.attendeeCount} attending` : ''}
         </Text>
       </View>
       <View style={styles.tags}>

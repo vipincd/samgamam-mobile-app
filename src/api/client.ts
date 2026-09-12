@@ -148,17 +148,18 @@ function buildQuery(params: Record<string, string | number | null | undefined>) 
 export function normalizeEventSummary(event: EventSummary): EventSummary {
   const isUnlimited = event.capacityMode === 'unlimited' || event.capacity === null;
   const attendeeCount =
-    event.attendeeCount ??
-    (event.capacity != null && event.remainingCapacity != null
-      ? Math.max(0, event.capacity - event.remainingCapacity)
-      : 0);
+    typeof event.attendeeCount === 'number'
+      ? event.attendeeCount
+      : typeof event.goingCount === 'number'
+        ? event.goingCount
+        : undefined;
   const remainingCapacity = isUnlimited
-    ? 999
+    ? null
     : event.remainingCapacity != null
       ? event.remainingCapacity
-      : 0;
+      : null;
   const availability =
-    event.availability ?? (isUnlimited || remainingCapacity > 0 ? 'available' : 'full');
+    event.availability ?? (isUnlimited || (remainingCapacity ?? 0) > 0 ? 'available' : 'full');
 
   return {
     ...event,
@@ -592,7 +593,7 @@ class ApiClient {
     pushToken?: string | null;
   }) {
     return this.request<{
-      data: { deviceId: string; registered: boolean };
+      data: { deviceId: string; platform?: string; registeredAt?: string; registered?: boolean };
       meta: ApiV1Meta;
     }>('/v1/devices/register', {
       body: JSON.stringify(payload),

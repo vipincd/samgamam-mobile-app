@@ -5,28 +5,40 @@ import type { EventSummary } from '../api/types';
 import { brand } from '../brand';
 import { formatCurrency, formatEventDate } from '../utils/format';
 
-export function DiscoveryEventCard({ event, locale, actionLabel, disabled, onPress }: {
-  event: EventSummary; locale: string; actionLabel: string; disabled?: boolean; onPress: () => void;
+export function DiscoveryEventCard({ event, locale, actionLabel, disabled, onPress, onPressCard }: {
+  event: EventSummary; locale: string; actionLabel: string; disabled?: boolean; onPress: () => void; onPressCard?: () => void;
 }) {
   const date = new Date(event.startsAt);
+  const cardBody = (
+    <>
+      <View style={styles.top}>
+        <View style={styles.date} accessible accessibilityLabel={formatEventDate(event.startsAt, locale)}>
+          <Text style={styles.month}>{date.toLocaleDateString(locale, { month: 'short' }).toUpperCase()}</Text>
+          <Text style={styles.day}>{date.getDate()}</Text>
+        </View>
+        <View style={styles.titleBlock}>
+          <Text style={styles.category}>{event.category}</Text>
+          <Text style={styles.title} numberOfLines={2} accessibilityRole="header">{event.title}</Text>
+          <Text style={styles.time}>{date.toLocaleDateString(locale, { weekday: 'short' })} · {date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</Text>
+        </View>
+      </View>
+      <Text style={styles.description} numberOfLines={2}>{event.description}</Text>
+      <View style={styles.meta}><MapPin size={14} color={brand.muted} /><Text style={styles.metaText} numberOfLines={1}>{event.location}</Text></View>
+    </>
+  );
+
   return <View style={styles.card}>
-    <View style={styles.top}>
-      <View style={styles.date} accessible accessibilityLabel={formatEventDate(event.startsAt, locale)}>
-        <Text style={styles.month}>{date.toLocaleDateString(locale, { month: 'short' }).toUpperCase()}</Text>
-        <Text style={styles.day}>{date.getDate()}</Text>
-      </View>
-      <View style={styles.titleBlock}>
-        <Text style={styles.category}>{event.category}</Text>
-        <Text style={styles.title} numberOfLines={2} accessibilityRole="header">{event.title}</Text>
-        <Text style={styles.time}>{date.toLocaleDateString(locale, { weekday: 'short' })} · {date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</Text>
-      </View>
-    </View>
-    <Text style={styles.description} numberOfLines={2}>{event.description}</Text>
-    <View style={styles.meta}><MapPin size={14} color={brand.muted} /><Text style={styles.metaText} numberOfLines={1}>{event.location}</Text></View>
+    {onPressCard ? (
+      <Pressable accessibilityRole="button" accessibilityLabel={`View details for ${event.title}`} onPress={onPressCard} style={({ pressed }) => [pressed && { opacity: 0.85 }]}>
+        {cardBody}
+      </Pressable>
+    ) : cardBody}
     <View style={styles.footer}>
       <View style={styles.priceGroup}>
         <Text style={styles.price}>{formatCurrency(event.ticketPriceCents, event.currency, locale)}</Text>
-        <View style={styles.meta}><UsersRound size={12} color={brand.muted} /><Text style={styles.attending}>{event.attendeeCount} attending</Text></View>
+        {typeof event.attendeeCount === 'number' ? (
+          <View style={styles.meta}><UsersRound size={12} color={brand.muted} /><Text style={styles.attending}>{event.attendeeCount} attending</Text></View>
+        ) : null}
       </View>
       <Pressable accessibilityRole="button" accessibilityLabel={`${actionLabel}: ${event.title}`} accessibilityState={{ disabled }} disabled={disabled}
         onPress={onPress} style={({ pressed }) => [styles.action, pressed && { opacity: 0.7 }, disabled && { opacity: 0.65 }]}>

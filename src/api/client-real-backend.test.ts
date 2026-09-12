@@ -1,24 +1,26 @@
 import { apiClient } from './client';
 
 describe('real backend live integration against /api/v1', () => {
-  const REAL_BACKEND_URL = 'http://127.0.0.1:3002';
-  let isBackendLive = false;
+  const REAL_BACKEND_URL =
+    process.env.API_BASE_URL || process.env.REAL_BACKEND_URL || 'http://127.0.0.1:3002';
 
   beforeAll(async () => {
+    let isBackendLive = false;
     try {
       const res = await fetch(`${REAL_BACKEND_URL}/api/healthz`);
       isBackendLive = res.ok;
     } catch {
       isBackendLive = false;
     }
+
+    if (!isBackendLive) {
+      throw new Error(
+        `Real backend is unavailable at ${REAL_BACKEND_URL}. Live integration tests require a running backend server. Start the server (e.g. PORT=3002 npm run dev) before running this test.`,
+      );
+    }
   });
 
   it('verifies real backend healthz, auth login, and v1 endpoints', async () => {
-    if (!isBackendLive) {
-      console.warn('Real backend is not running on 3002, skipping live test');
-      return;
-    }
-
     await apiClient.setApiBaseUrl(REAL_BACKEND_URL);
 
     // 1. Health
@@ -34,7 +36,9 @@ describe('real backend live integration against /api/v1', () => {
       const e = eventsRes.events[0];
       expect(e.id).toBeDefined();
       expect(e.title).toBeDefined();
-      expect(typeof e.attendeeCount).toBe('number');
+      if (typeof e.attendeeCount !== 'undefined') {
+        expect(typeof e.attendeeCount).toBe('number');
+      }
       expect(e.timeZone).toBe('UTC');
     }
 
@@ -87,7 +91,8 @@ describe('real backend live integration against /api/v1', () => {
       appVersion: '1.0.0',
     });
     expect(deviceReg.data.deviceId).toBe('iphone17-sim-integration-uuid');
-    expect(deviceReg.data.registered).toBe(true);
+    expect(deviceReg.data.platform).toBe('ios');
+    expect(deviceReg.data.registeredAt).toBeDefined();
 
     // 10. Device unregistration: unregisterDevice via DELETE /api/v1/devices/register
     const deviceUnreg = await apiClient.unregisterDevice('iphone17-sim-integration-uuid');
