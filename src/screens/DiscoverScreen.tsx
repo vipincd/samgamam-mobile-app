@@ -61,7 +61,7 @@ export function DiscoverScreen(props: {
     if (!authenticated) { onRequestSignIn(); return; }
     setPendingEventId(event.id); setMessage(null);
     try {
-      const next = event.remainingCapacity > 0 ? 'going' : 'waitlist';
+      const next = (event.capacityMode === 'unlimited' || (event.remainingCapacity ?? 0) > 0) ? 'going' : 'waitlist';
       const response = await apiClient.rsvpToEvent(event.id, next);
       setEvents(current => current.map(item => item.id === response.event.id ? response.event : item));
       setRecommendations(current => current ? { ...current, recommendedForYou: current.recommendedForYou.map(item => item.event.id === response.event.id ? { ...item, event: response.event } : item) } : current);
@@ -69,7 +69,7 @@ export function DiscoverScreen(props: {
     } catch (e) { setMessage(getErrorMessage(e)); }
     finally { setPendingEventId(null); }
   }
-  const actionLabel = (event: EventSummary) => pendingEventId === event.id ? 'Saving…' : !authenticated ? 'Sign in to join' : event.viewerRsvpState === 'going' ? 'Going' : event.remainingCapacity > 0 ? 'Join gathering' : 'Join waitlist';
+  const actionLabel = (event: EventSummary) => pendingEventId === event.id ? 'Saving…' : !authenticated ? 'Sign in to join' : event.viewerRsvpState === 'going' ? 'Going' : (event.capacityMode === 'unlimited' || (event.remainingCapacity ?? 0) > 0) ? 'Join gathering' : 'Join waitlist';
   const renderEvent = (event: EventSummary) => <DiscoveryEventCard event={event} locale={locale} actionLabel={actionLabel(event)} disabled={pendingEventId === event.id || event.viewerRsvpState === 'going'} onPress={() => { void handleRsvp(event); }} />;
   const categories = ['All', ...Array.from(new Set(events.map(e => e.category)))];
   const visible = category === 'All' ? events : events.filter(e => e.category === category);

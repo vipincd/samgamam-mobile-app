@@ -1,17 +1,23 @@
-import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 
 import type {
   AnalyticsOverview,
+  ApiV1Meta,
+  ApiV1Response,
   AuthSessionResponse,
   CopilotAction,
   CopilotResponse,
   DiscussionListResponse,
+  DiscussionPost,
   EventListResponse,
+  EventSummary,
   GroupListResponse,
+  GroupSummary,
   HealthResponse,
   HelpResponse,
   LoginResponse,
+  MeResponse,
   NotificationListResponse,
   RecommendationsResponse,
   RsvpResponse,
@@ -22,53 +28,80 @@ import type {
 const ACCESS_TOKEN_KEY = 'samgamam.access_token';
 const API_BASE_URL_KEY = 'samgamam.api_base_url';
 
-let secureStoreAvailable: boolean | null = null;
-
-async function canUseSecureStore() {
-  if (secureStoreAvailable === null) {
-    secureStoreAvailable = await SecureStore.isAvailableAsync();
+async function isSecureStoreAvailable() {
+  try {
+    return await SecureStore.isAvailableAsync();
+  } catch {
+    return false;
   }
-
-  return secureStoreAvailable;
 }
 
 async function readStoredValue(key: string) {
-  if (!(await canUseSecureStore())) {
+  if (!(await isSecureStoreAvailable())) {
     return null;
   }
 
-  return SecureStore.getItemAsync(key);
+  try {
+    return await SecureStore.getItemAsync(key);
+  } catch {
+    return null;
+  }
 }
 
 async function writeStoredValue(key: string, value: string) {
-  if (!(await canUseSecureStore())) {
+  if (!(await isSecureStoreAvailable())) {
     return;
   }
 
-  await SecureStore.setItemAsync(key, value);
+  try {
+    await SecureStore.setItemAsync(key, value);
+  } catch {
+    // If SecureStore fails, continue with in-memory state.
+  }
 }
 
 async function removeStoredValue(key: string) {
-  if (!(await canUseSecureStore())) {
+  if (!(await isSecureStoreAvailable())) {
     return;
   }
 
-  await SecureStore.deleteItemAsync(key);
+  try {
+    await SecureStore.deleteItemAsync(key);
+  } catch {
+    // Ignore removal failures in development.
+  }
 }
 
-function normalizeBaseUrl(value: string | null | undefined) {
-  if (!value?.trim()) {
+function normalizeBaseUrl(raw?: string | null) {
+  if (!raw) {
     return null;
   }
 
-  const parsed = new URL(value.trim());
-  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__);
+  const trimmed = raw.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  let parsed: URL;
+
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('Enter a valid URL including http:// or https://.');
+  }
 
   if (parsed.protocol === 'https:') {
     return parsed.origin;
   }
 
-  if (isDev && parsed.protocol === 'http:') {
+  if (parsed.protocol !== 'http:') {
+    throw new Error('Samgamam requires HTTPS outside local development.');
+  }
+
+  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__);
+
+  if (isDev) {
     const localHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
     const octets = parsed.hostname.split('.').map(Number);
     const privateLanHost =
@@ -110,6 +143,31 @@ function buildQuery(params: Record<string, string | number | null | undefined>) 
 
   const query = searchParams.toString();
   return query ? `?${query}` : '';
+}
+
+export function normalizeEventSummary(event: EventSummary): EventSummary {
+  const isUnlimited = event.capacityMode === 'unlimited' || event.capacity === null;
+  const attendeeCount =
+    event.attendeeCount ??
+    (event.capacity != null && event.remainingCapacity != null
+      ? Math.max(0, event.capacity - event.remainingCapacity)
+      : 0);
+  const remainingCapacity = isUnlimited
+    ? 999
+    : event.remainingCapacity != null
+      ? event.remainingCapacity
+      : 0;
+  const availability =
+    event.availability ?? (isUnlimited || remainingCapacity > 0 ? 'available' : 'full');
+
+  return {
+    ...event,
+    attendeeCount,
+    availability,
+    capacity: isUnlimited ? null : (event.capacity ?? null),
+    capacityMode: isUnlimited ? 'unlimited' : 'limited',
+    remainingCapacity,
+  };
 }
 
 function readApiError(payload: unknown) {
@@ -289,8 +347,39 @@ class ApiClient {
     return this.request<HealthResponse>('/healthz');
   }
 
-  async getSession() {
-    return this.request<AuthSessionResponse>('/auth/session');
+  async getSession(): Promise<AuthSessionResponse> {
+    if (!this.accessToken) {
+      return {
+        authenticated: false,
+        locale: 'en',
+        viewer: null,
+      };
+    }
+
+    try {
+      const response = await this.request<any>('/v1/me');
+      const viewer = response?.data?.viewer ?? response?.data?.user ?? response?.viewer ?? null;
+      const locale = response?.data?.locale ?? response?.locale ?? 'en';
+      return {
+        authenticated: Boolean(viewer || response?.authenticated),
+        locale,
+        viewer,
+      };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await this.setAccessToken(null);
+        return {
+          authenticated: false,
+          locale: 'en',
+          viewer: null,
+        };
+      }
+      throw error;
+    }
+  }
+
+  async getViewerProfile(locale?: string): Promise<MeResponse> {
+    return this.request<MeResponse>(`/v1/me${buildQuery({ locale })}`);
   }
 
   async login(email: string, password: string) {
@@ -313,39 +402,210 @@ class ApiClient {
     }
   }
 
-  async getEvents(locale?: string) {
-    return this.request<EventListResponse>(`/events${buildQuery({ locale })}`);
-  }
+  async getEvents(
+    options?:
+      | string
+      | {
+          category?: string;
+          cursor?: string;
+          dateFrom?: string;
+          language?: string;
+          limit?: number;
+          locale?: string;
+          location?: string;
+          q?: string;
+        },
+  ): Promise<EventListResponse> {
+    const params =
+      typeof options === 'string'
+        ? { locale: options }
+        : {
+            category: options?.category,
+            cursor: options?.cursor,
+            dateFrom: options?.dateFrom,
+            language: options?.language,
+            limit: options?.limit,
+            locale: options?.locale,
+            location: options?.location,
+            q: options?.q?.trim(),
+          };
 
-  async searchEvents(query: string, locale?: string) {
-    return this.request<SearchResponse>(
-      `/search${buildQuery({ locale, pageSize: 12, q: query.trim() })}`,
+    const response = await this.request<ApiV1Response<EventSummary[]>>(
+      `/v1/events${buildQuery(params)}`,
     );
+    const normalized = (response.data ?? []).map(normalizeEventSummary);
+
+    return {
+      data: normalized,
+      events: normalized,
+      locale: params.locale ?? 'en',
+      meta: response.meta,
+      page: response.page,
+      viewer: null,
+    };
   }
 
-  async getGroups(locale?: string) {
-    return this.request<GroupListResponse>(`/groups${buildQuery({ locale })}`);
-  }
+  async searchEvents(query: string, locale?: string): Promise<SearchResponse> {
+    const params = {
+      limit: 12,
+      locale,
+      q: query.trim(),
+    };
 
-  async getDiscussions(groupId: string, locale?: string) {
-    return this.request<DiscussionListResponse>(
-      `/groups/${encodeURIComponent(groupId)}/discussions${buildQuery({ locale })}`,
+    const response = await this.request<ApiV1Response<EventSummary[]>>(
+      `/v1/events${buildQuery(params)}`,
     );
+    const normalized = (response.data ?? []).map(normalizeEventSummary);
+
+    return {
+      data: normalized,
+      events: normalized,
+      items: normalized,
+      meta: response.meta,
+      page: 1,
+      pageSize: 12,
+      total: normalized.length,
+      viewer: null,
+    };
+  }
+
+  async getEvent(
+    eventId: string,
+    locale?: string,
+  ): Promise<{ data: EventSummary; event: EventSummary; meta: ApiV1Meta }> {
+    const response = await this.request<{ data: EventSummary; meta: ApiV1Meta }>(
+      `/v1/events/${encodeURIComponent(eventId)}${buildQuery({ locale })}`,
+    );
+    const normalized = normalizeEventSummary(response.data);
+
+    return {
+      data: normalized,
+      event: normalized,
+      meta: response.meta,
+    };
+  }
+
+  async rsvpToEvent(
+    eventId: string,
+    state: RsvpState = 'going',
+  ): Promise<RsvpResponse> {
+    const response = await this.request<{
+      data: { event: EventSummary; state: RsvpState };
+      meta: ApiV1Meta;
+    }>(`/v1/events/${encodeURIComponent(eventId)}/rsvp`, {
+      body: JSON.stringify({ state }),
+      method: 'POST',
+    });
+
+    const event = normalizeEventSummary({
+      ...response.data.event,
+      viewerRsvpState: response.data.state,
+    });
+
+    return {
+      data: response.data,
+      event,
+      meta: response.meta,
+    };
+  }
+
+  async getGroups(
+    options?:
+      | string
+      | {
+          category?: string;
+          cursor?: string;
+          limit?: number;
+          locale?: string;
+          q?: string;
+        },
+  ): Promise<GroupListResponse> {
+    const params =
+      typeof options === 'string'
+        ? { locale: options }
+        : {
+            category: options?.category,
+            cursor: options?.cursor,
+            limit: options?.limit,
+            locale: options?.locale,
+            q: options?.q?.trim(),
+          };
+
+    const response = await this.request<ApiV1Response<GroupSummary[]>>(
+      `/v1/groups${buildQuery(params)}`,
+    );
+
+    return {
+      data: response.data ?? [],
+      groups: response.data ?? [],
+      locale: params.locale ?? 'en',
+      meta: response.meta,
+      page: response.page,
+      viewer: null,
+    };
+  }
+
+  async getGroup(
+    groupId: string,
+    locale?: string,
+  ): Promise<{ data: GroupSummary; group: GroupSummary; meta: ApiV1Meta }> {
+    const response = await this.request<{ data: GroupSummary; meta: ApiV1Meta }>(
+      `/v1/groups/${encodeURIComponent(groupId)}${buildQuery({ locale })}`,
+    );
+
+    return {
+      data: response.data,
+      group: response.data,
+      meta: response.meta,
+    };
+  }
+
+  async getDiscussions(
+    groupId: string,
+    locale?: string,
+  ): Promise<DiscussionListResponse> {
+    const response = await this.request<ApiV1Response<DiscussionPost[]>>(
+      `/v1/groups/${encodeURIComponent(groupId)}/discussions${buildQuery({ locale })}`,
+    );
+
+    return {
+      data: response.data ?? [],
+      discussions: response.data ?? [],
+      meta: response.meta,
+    };
   }
 
   async createDiscussion(groupId: string, body: string, pinned = false) {
     return this.request<{
-      post: DiscussionListResponse['discussions'][number];
+      post: DiscussionPost;
     }>(`/groups/${encodeURIComponent(groupId)}/discussions`, {
       body: JSON.stringify({ body, pinned }),
       method: 'POST',
     });
   }
 
-  async rsvpToEvent(eventId: string, state: RsvpState = 'going') {
-    return this.request<RsvpResponse>(`/events/${encodeURIComponent(eventId)}/rsvp`, {
-      body: JSON.stringify({ state }),
+  async registerDevice(payload: {
+    appVersion?: string;
+    deviceId: string;
+    locale?: string;
+    platform: 'ios' | 'android';
+    pushToken?: string | null;
+  }) {
+    return this.request<{
+      data: { deviceId: string; registered: boolean };
+      meta: ApiV1Meta;
+    }>('/v1/devices/register', {
+      body: JSON.stringify(payload),
       method: 'POST',
+    });
+  }
+
+  async unregisterDevice(deviceId: string) {
+    return this.request<{
+      data: { deviceId: string; unregistered: boolean };
+      meta: ApiV1Meta;
+    }>(`/v1/devices/register${buildQuery({ deviceId })}`, {
+      method: 'DELETE',
     });
   }
 

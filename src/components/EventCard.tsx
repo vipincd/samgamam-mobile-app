@@ -20,8 +20,8 @@ export function EventCard(props: {
       <View style={styles.topRow}>
         <Pill label={event.category} tone="accent" />
         <Pill
-          label={event.remainingCapacity > 0 ? `${event.remainingCapacity} spots left` : 'Waitlist only'}
-          tone={event.remainingCapacity > 0 ? 'success' : 'warning'}
+          label={(event.capacityMode === 'unlimited' || (event.remainingCapacity ?? 0) > 0) ? (event.capacityMode === 'unlimited' ? 'Open gathering' : `${event.remainingCapacity} spots left`) : 'Waitlist only'}
+          tone={(event.capacityMode === 'unlimited' || (event.remainingCapacity ?? 0) > 0) ? 'success' : 'warning'}
         />
       </View>
       <View style={styles.copyBlock}>
@@ -52,7 +52,7 @@ export function EventCard(props: {
           disabled={props.actionDisabled}
           label={props.actionLabel ?? 'Open'}
           onPress={props.onActionPress}
-          variant={event.remainingCapacity > 0 ? 'primary' : 'secondary'}
+          variant={(event.capacityMode === 'unlimited' || (event.remainingCapacity ?? 0) > 0) ? 'primary' : 'secondary'}
         />
       ) : null}
     </Surface>

@@ -19,22 +19,28 @@ export interface EventSummary {
   category: string;
   languages: string[];
   location: string;
-  coordinates: {
+  coordinates?: {
     latitude: number;
     longitude: number;
   };
   startsAt: string;
-  capacity: number;
-  attendeeCount: number;
+  endsAt?: string | null;
+  timeZone?: string;
+  capacityMode?: 'limited' | 'unlimited';
+  capacity?: number | null;
+  remainingCapacity?: number | null;
+  availability?: 'available' | 'waitlist' | 'full';
+  status?: string;
   ticketPriceCents: number;
   currency: string;
   isPaid: boolean;
-  createdAt: string;
-  locale: string;
-  goingCount: number;
-  waitlistCount: number;
-  remainingCapacity: number;
-  viewerRsvpState: RsvpState | null;
+  canonicalUrl?: string;
+  createdAt?: string;
+  locale?: string;
+  attendeeCount?: number;
+  goingCount?: number;
+  waitlistCount?: number;
+  viewerRsvpState?: RsvpState | null;
 }
 
 export interface GroupSummary {
@@ -43,6 +49,7 @@ export interface GroupSummary {
   description: string;
   tags: string[];
   category: string;
+  city?: string | null;
   languages: string[];
   requiresApproval: boolean;
   discussionCount: number;
@@ -53,11 +60,13 @@ export interface GroupSummary {
 
 export interface DiscussionPost {
   id: string;
-  authorId: string;
+  authorId?: string;
   authorName: string;
   body: string;
   pinned: boolean;
   createdAt: string;
+  locale?: string;
+  reactions?: { type: string; count: number }[];
 }
 
 export interface NotificationItem {
@@ -119,28 +128,63 @@ export interface LoginResponse {
   accessToken: string;
 }
 
+export interface PageInfo {
+  hasNextPage: boolean;
+  nextCursor: string | null;
+}
+
+export interface ApiV1Meta {
+  requestId: string;
+}
+
+export interface ApiV1Response<T> {
+  data: T;
+  page?: PageInfo;
+  meta: ApiV1Meta;
+}
+
+export interface MeResponse {
+  data: {
+    viewer?: Viewer;
+    user?: Viewer;
+    locale: string;
+  };
+  meta: ApiV1Meta;
+}
+
 export interface EventListResponse {
-  locale: string;
-  viewer: Viewer | null;
+  data?: EventSummary[];
   events: EventSummary[];
+  locale?: string;
+  viewer?: Viewer | null;
+  page?: PageInfo;
+  meta?: ApiV1Meta;
 }
 
 export interface SearchResponse {
+  data?: EventSummary[];
+  items: EventSummary[];
+  events?: EventSummary[];
   total: number;
   page: number;
   pageSize: number;
-  items: EventSummary[];
-  viewer: Viewer | null;
+  viewer?: Viewer | null;
+  meta?: ApiV1Meta;
 }
 
 export interface GroupListResponse {
-  locale: string;
-  viewer: Viewer | null;
+  data?: GroupSummary[];
   groups: GroupSummary[];
+  locale?: string;
+  viewer?: Viewer | null;
+  page?: PageInfo;
+  meta?: ApiV1Meta;
 }
 
 export interface DiscussionListResponse {
+  data?: DiscussionPost[];
   discussions: DiscussionPost[];
+  meta?: ApiV1Meta;
 }
 
 export interface NotificationListResponse {
@@ -170,7 +214,12 @@ export interface CopilotResponse {
 }
 
 export interface RsvpResponse {
+  data?: {
+    event: EventSummary;
+    state: RsvpState;
+  };
   event: EventSummary;
+  meta?: ApiV1Meta;
 }
 
 export interface HealthResponse {
