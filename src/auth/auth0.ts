@@ -151,6 +151,10 @@ export function createAuthenticationClient(clientOverride?: Auth0Client) {
       }
     },
 
+    async getCredentials(forceRefresh = false): Promise<Credentials> {
+      return getCredentials(forceRefresh);
+    },
+
     async getAccessToken(forceRefresh = false): Promise<string> {
       return (await getCredentials(forceRefresh)).accessToken;
     },

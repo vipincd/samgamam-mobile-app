@@ -1,4 +1,4 @@
-export type UserRole = 'member' | 'organizer' | 'moderator' | 'admin';
+export type UserRole = 'member' | 'organizer' | 'moderator' | 'admin' | 'user';
 export type RsvpState = 'going' | 'waitlist' | 'cancelled';
 export type CopilotAction = 'suggest_title' | 'suggest_description';
 
@@ -226,4 +226,37 @@ export interface HealthResponse {
   status: string;
   service: string;
   timestamp: string;
+}
+
+export interface DeviceRegistrationPayload {
+  deviceId: string;
+  platform: "ios" | "android";
+  pushToken: string;
+  appVersion?: string;
+  locale?: string;
+}
+
+export type ApiErrorCategory =
+  | "network"
+  | "timeout"
+  | "authentication"
+  | "authorization"
+  | "not_found"
+  | "conflict"
+  | "validation"
+  | "server"
+  | "unknown";
+
+export interface ApiV1ErrorDetail {
+  field: string;
+  code: string;
+}
+
+export interface ApiV1ErrorPayload {
+  error: {
+    code?: string;
+    message?: string;
+    requestId?: string;
+    details?: ApiV1ErrorDetail[];
+  };
 }

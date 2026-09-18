@@ -22,6 +22,7 @@ const hideNativeSplash = () => { void SplashScreen.hideAsync().catch(() => undef
 const tabIcons = { discover: Compass, groups: UsersRound, help: MessageCircle, profile: UserRound, 'auth-test': FlaskConical };
 
 import { apiClient, getErrorMessage } from './src/api/client';
+import { sessionManager } from './src/auth/session';
 import type { AuthSessionResponse } from './src/api/types';
 import { InlineNotice } from './src/components/ui';
 import { DiscoverScreen } from './src/screens/DiscoverScreen';
@@ -73,7 +74,14 @@ export type ProductAuthStatus =
   | 'unresolved'
   | 'authenticated'
   | 'signed-out'
-  | 'reconciliation-failed';
+  | 'reconciliation-failed'
+  | 'initializing'
+  | 'signedOut'
+  | 'signingIn'
+  | 'signedIn'
+  | 'refreshing'
+  | 'expired'
+  | 'error';
 
 export interface ProductAuthState {
   status: ProductAuthStatus;
@@ -137,18 +145,20 @@ function AppContent() {
   const [slowStartup, setSlowStartup] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('discover');
-  const [authState, setAuthState] = useState<ProductAuthState>({
-    status: 'unresolved',
-    session: defaultSession,
-    errorMessage: null,
+  const [authState, setAuthState] = useState<ProductAuthState>(() => {
+    const s = sessionManager.getState();
+    return {
+      status: s.status,
+      session: s.session,
+      errorMessage: s.errorMessage,
+    };
   });
   const [apiBaseUrl, setApiBaseUrl] = useState(apiClient.getBaseUrl());
   const [bootstrapping, setBootstrapping] = useState(true);
 
   async function refreshSession() {
-    const nextState = await reconcileProductSession(apiClient);
-    setAuthState(nextState);
-    return nextState.session;
+    const s = await sessionManager.initialize();
+    return s.session;
   }
 
   async function bootstrapApp() {
@@ -157,12 +167,11 @@ function AppContent() {
     try {
       const bootstrapState = await within(apiClient.initialize(), 8000);
       setApiBaseUrl(bootstrapState.apiBaseUrl);
-      await within(refreshSession(), 8000);
+      await within(sessionManager.initialize(), 8000);
     } catch (error) {
-      const hasToken = apiClient.hasStoredAccessToken();
       const errorMsg = getErrorMessage(error);
       setAuthState({
-        status: hasToken ? 'reconciliation-failed' : 'signed-out',
+        status: 'error',
         session: defaultSession,
         errorMessage: errorMsg,
       });
@@ -172,6 +181,13 @@ function AppContent() {
   }
 
   useEffect(() => {
+    const unsubscribe = sessionManager.subscribe((s) => {
+      setAuthState({
+        status: s.status,
+        session: s.session,
+        errorMessage: s.errorMessage,
+      });
+    });
     void bootstrapApp();
     void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
       SplashScreen.setOptions({ fade: !reduced, duration: 160 });
@@ -179,7 +195,10 @@ function AppContent() {
     const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', (reduced) => {
       SplashScreen.setOptions({ fade: !reduced, duration: 160 });
     });
-    return () => motion.remove();
+    return () => {
+      unsubscribe();
+      motion.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -195,26 +214,12 @@ function AppContent() {
     return nextBaseUrl;
   }
 
-  async function handleLogin(email: string, password: string) {
-    const response = await apiClient.login(email, password);
-    setAuthState({
-      status: 'authenticated',
-      session: normalizeSession({
-        authenticated: true,
-        locale: response.locale,
-        viewer: response.viewer,
-      }),
-      errorMessage: null,
-    });
+  async function handleLogin() {
+    await sessionManager.signIn();
   }
 
   async function handleLogout() {
-    await apiClient.logout();
-    setAuthState({
-      status: 'signed-out',
-      session: defaultSession,
-      errorMessage: null,
-    });
+    await sessionManager.signOut();
   }
 
   function openProfileTab() {

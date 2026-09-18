@@ -36,39 +36,30 @@ import {
   toShortName,
 } from '../utils/format';
 
-const demoAccounts = [
-  {
-    email: 'vipin@example.local',
-    label: 'Vipin organizer',
-    password: 'Samgamam!Demo2026',
-  },
-  {
-    email: 'arjun@example.local',
-    label: 'Arjun organizer',
-    password: 'Samgamam!Demo2026',
-  },
-  {
-    email: 'admin@example.local',
-    label: 'Admin reviewer',
-    password: 'Samgamam!Admin2026',
-  },
-];
-
 export function ProfileScreen(props: {
   apiBaseUrl: string;
-  authStatus?: 'unresolved' | 'authenticated' | 'signed-out' | 'reconciliation-failed';
+  authStatus?:
+    | 'unresolved'
+    | 'authenticated'
+    | 'signed-out'
+    | 'reconciliation-failed'
+    | 'initializing'
+    | 'signedOut'
+    | 'signingIn'
+    | 'signedIn'
+    | 'refreshing'
+    | 'expired'
+    | 'error';
   connectionError: string | null;
   isFocused: boolean;
   locale: string;
-  onLogin: (email: string, password: string) => Promise<void>;
+  onLogin: () => Promise<void>;
   onLogout: () => Promise<void>;
   onRefreshSession: () => Promise<void>;
   onSaveApiBaseUrl: (value: string | null) => Promise<string>;
   session: AuthSessionResponse;
 }) {
   const [draftApiBaseUrl, setDraftApiBaseUrl] = useState(props.apiBaseUrl);
-  const [email, setEmail] = useState('vipin@example.local');
-  const [password, setPassword] = useState('Samgamam!Demo2026');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [healthMessage, setHealthMessage] = useState<string | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -162,8 +153,8 @@ export function ProfileScreen(props: {
     setStatusMessage(null);
 
     try {
-      await props.onLogin(email.trim(), password);
-      setStatusMessage('Signed in successfully. Mobile-only tabs are now unlocked.');
+      await props.onLogin();
+      setStatusMessage('Signed in successfully.');
       await loadDashboard();
     } catch (error) {
       setStatusMessage(getErrorMessage(error));
@@ -380,39 +371,16 @@ export function ProfileScreen(props: {
       ) : !props.session.authenticated ? (
         <Surface style={styles.sectionCard}>
           <SectionHeader
-            subtitle="Use a seeded account so every mobile tab can talk to the existing Next.js security model."
+            subtitle="Sign in securely with Auth0 to access your gatherings, discussions, and profile."
             title="Sign in"
           />
-          <Field
-            keyboardType="email-address"
-            label="Email"
-            onChangeText={setEmail}
-            placeholder="vipin@example.local"
-            value={email}
+          <InlineNotice
+            message="Authentication is managed securely by Auth0. Sensitive credentials are never stored or logged on this device."
+            tone="default"
           />
-          <Field
-            label="Password"
-            onChangeText={setPassword}
-            placeholder="Samgamam!Demo2026"
-            secureTextEntry
-            value={password}
-          />
-          <View style={styles.quickActions}>
-            {demoAccounts.map((account) => (
-              <Button
-                compact
-                key={account.email}
-                label={account.label}
-                onPress={() => {
-                  setEmail(account.email);
-                  setPassword(account.password);
-                }}
-                variant="secondary"
-              />
-            ))}
-          </View>
           <Button
-            label={authLoading ? 'Signing in...' : 'Sign in'}
+            disabled={authLoading || props.authStatus === 'signingIn'}
+            label={authLoading || props.authStatus === 'signingIn' ? 'Signing in...' : 'Sign in with Auth0'}
             onPress={() => {
               void handleLogin();
             }}

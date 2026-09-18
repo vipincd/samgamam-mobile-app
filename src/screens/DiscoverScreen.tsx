@@ -88,8 +88,8 @@ export function DiscoverScreen(props: {
       });
       setNextCursor(result.page?.nextCursor ?? null);
       setHasNextPage(Boolean(result.page?.hasNextPage && result.page?.nextCursor));
-    } catch {
-      // transient pagination failure, keep existing items
+    } catch (err) {
+      setMessage(getErrorMessage(err));
     } finally {
       setLoadingMore(false);
     }

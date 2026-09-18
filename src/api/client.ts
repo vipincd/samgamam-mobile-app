@@ -3,11 +3,13 @@ import * as SecureStore from 'expo-secure-store';
 
 import type {
   AnalyticsOverview,
+  ApiErrorCategory,
   ApiV1Meta,
   ApiV1Response,
   AuthSessionResponse,
   CopilotAction,
   CopilotResponse,
+  DeviceRegistrationPayload,
   DiscussionListResponse,
   DiscussionPost,
   EventListResponse,
@@ -23,8 +25,9 @@ import type {
   RsvpResponse,
   RsvpState,
   SearchResponse,
-} from './types';
+} from "./types";
 
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_KEY = 'samgamam.access_token';
 const API_BASE_URL_KEY = 'samgamam.api_base_url';
 
@@ -179,17 +182,26 @@ function readApiError(payload: unknown) {
     payload.error &&
     typeof payload.error === 'object'
   ) {
-    const error = payload.error as { code?: unknown; message?: unknown };
+    const error = payload.error as {
+      code?: unknown;
+      details?: unknown;
+      message?: unknown;
+      requestId?: unknown;
+    };
 
     return {
       code: typeof error.code === 'string' ? error.code : undefined,
+      details: error.details,
       message: typeof error.message === 'string' ? error.message : undefined,
+      requestId: typeof error.requestId === 'string' ? error.requestId : undefined,
     };
   }
 
   return {
     code: undefined,
+    details: undefined,
     message: undefined,
+    requestId: undefined,
   };
 }
 
@@ -197,20 +209,65 @@ export class ApiError extends Error {
   readonly code?: string;
   readonly details?: unknown;
   readonly status: number;
+  readonly requestId?: string;
+  readonly category: ApiErrorCategory;
 
   constructor(
     message: string,
     options: {
       code?: string;
       details?: unknown;
+      requestId?: string;
       status: number;
     },
   ) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
     this.code = options.code;
     this.details = options.details;
     this.status = options.status;
+    this.requestId = options.requestId;
+    this.category = this.resolveCategory();
+  }
+
+  private resolveCategory(): ApiErrorCategory {
+    if (this.code === "timeout") return "timeout";
+    if (this.status === 0 || this.code === "network_error") return "network";
+    if (this.status === 401) return "authentication";
+    if (this.status === 403) return "authorization";
+    if (this.status === 404) return "not_found";
+    if (this.status === 409) return "conflict";
+    if (this.status === 400 || this.status === 422) return "validation";
+    if (this.status >= 500) return "server";
+    return "unknown";
+  }
+
+  get isNetworkError(): boolean {
+    return this.status === 0 || this.category === "network" || this.category === "timeout";
+  }
+
+  get isAuthError(): boolean {
+    return this.status === 401;
+  }
+
+  get isForbidden(): boolean {
+    return this.status === 403;
+  }
+
+  get isNotFound(): boolean {
+    return this.status === 404;
+  }
+
+  get isConflict(): boolean {
+    return this.status === 409;
+  }
+
+  get isValidationError(): boolean {
+    return this.status === 400 || this.status === 422;
+  }
+
+  get isServerError(): boolean {
+    return this.status >= 500;
   }
 }
 
@@ -226,6 +283,15 @@ class ApiClient {
   private accessToken: string | null = null;
   private initialized = false;
   private runtimeBaseUrl: string | null = null;
+  private onTokenExpired: (() => Promise<boolean>) | null = null;
+
+  setTokenExpiredHandler(handler: () => Promise<boolean>) {
+    this.onTokenExpired = handler;
+  }
+
+  async clearStoredSession() {
+    await this.setAccessToken(null);
+  }
 
   getBaseUrl() {
     return resolveBaseUrl(this.runtimeBaseUrl);
@@ -272,7 +338,7 @@ class ApiClient {
     return this.getBaseUrl();
   }
 
-  private async setAccessToken(token: string | null) {
+  async setAccessToken(token: string | null) {
     this.accessToken = token;
     this.initialized = true;
 
@@ -285,7 +351,8 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: RequestInit & { timeoutMs?: number } = {},
+    isRetry = false,
   ): Promise<T> {
     await this.initialize();
 
@@ -301,14 +368,50 @@ class ApiClient {
       headers.set('Authorization', `Bearer ${this.accessToken}`);
     }
 
+    const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    const controller = new AbortController();
+    let isTimedOut = false;
+    const timeoutId = setTimeout(() => {
+      isTimedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
+    if (options.signal) {
+      options.signal.addEventListener('abort', () => {
+        controller.abort();
+      });
+    }
+
     let response: Response;
 
     try {
       response = await fetch(`${this.getApiUrl()}${endpoint}`, {
         ...options,
         headers,
+        signal: controller.signal,
       });
     } catch (error) {
+      if (isTimedOut) {
+        throw new ApiError(
+          `Request to Samgamam timed out after ${Math.round(timeoutMs / 1000)}s. Check your connection and try again.`,
+          {
+            code: 'timeout',
+            details: error,
+            status: 0,
+          },
+        );
+      }
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      const isAbort = error instanceof Error && error.name === 'AbortError';
+      if (isAbort) {
+        throw new ApiError('Request to Samgamam was cancelled.', {
+          code: 'aborted',
+          details: error,
+          status: 0,
+        });
+      }
       throw new ApiError(
         `Unable to reach Samgamam at ${this.getBaseUrl()}. Check the backend URL and try again.`,
         {
@@ -317,25 +420,59 @@ class ApiClient {
           status: 0,
         },
       );
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     const contentType = response.headers.get('content-type') ?? '';
-    const payload = contentType.includes('application/json')
-      ? await response.json()
-      : await response.text();
+    let payload: unknown;
+    if (contentType.includes('application/json')) {
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        throw new ApiError(
+          `Samgamam returned an invalid JSON response (status ${response.status}).`,
+          {
+            code: 'invalid_json',
+            details: parseError,
+            requestId: response.headers.get('x-request-id') ?? undefined,
+            status: response.status,
+          },
+        );
+      }
+    } else {
+      payload = await response.text();
+    }
 
     if (!response.ok) {
+      if (
+        response.status === 401 &&
+        !isRetry &&
+        this.accessToken &&
+        this.onTokenExpired &&
+        endpoint !== '/auth/login' &&
+        endpoint !== '/v1/auth/session'
+      ) {
+        const refreshed = await this.onTokenExpired();
+        if (refreshed) {
+          return this.request<T>(endpoint, options, true);
+        }
+      }
+
       if (response.status === 401) {
         await this.setAccessToken(null);
       }
 
       const apiError = readApiError(payload);
+      const requestId =
+        apiError.requestId ?? response.headers.get('x-request-id') ?? undefined;
 
       throw new ApiError(
         apiError.message ?? `Samgamam responded with status ${response.status}.`,
         {
           code: apiError.code,
-          details: payload,
+          details: apiError.details ?? payload,
+          requestId,
           status: response.status,
         },
       );
@@ -383,6 +520,26 @@ class ApiClient {
     return this.request<MeResponse>(`/v1/me${buildQuery({ locale })}`);
   }
 
+  async establishAuth0Session(
+    auth0AccessToken: string,
+    idToken?: string,
+  ): Promise<LoginResponse> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${auth0AccessToken}`,
+    };
+    const response = await this.request<{ data: LoginResponse; meta: ApiV1Meta }>(
+      '/v1/auth/session',
+      {
+        body: idToken ? JSON.stringify({ idToken }) : undefined,
+        headers,
+        method: 'POST',
+      },
+    );
+    const sessionData = response.data;
+    await this.setAccessToken(sessionData.accessToken);
+    return sessionData;
+  }
+
   async login(email: string, password: string) {
     const response = await this.request<LoginResponse>('/auth/login', {
       body: JSON.stringify({ email, password }),
@@ -394,10 +551,20 @@ class ApiClient {
   }
 
   async logout() {
+    const token = this.accessToken;
     try {
-      await this.request<{ signedOut: boolean }>('/auth/logout', {
-        method: 'POST',
-      });
+      if (token) {
+        try {
+          await this.request<{ data: { revoked: boolean } }>('/v1/auth/revoke', {
+            body: JSON.stringify({ token }),
+            method: 'POST',
+          });
+        } catch {
+          await this.request<{ signedOut: boolean }>('/auth/logout', {
+            method: 'POST',
+          }).catch(() => undefined);
+        }
+      }
     } finally {
       await this.setAccessToken(null);
     }
@@ -576,22 +743,29 @@ class ApiClient {
     };
   }
 
-  async createDiscussion(groupId: string, body: string, pinned = false) {
-    return this.request<{
-      post: DiscussionPost;
-    }>(`/groups/${encodeURIComponent(groupId)}/discussions`, {
+  async createDiscussion(
+    groupId: string,
+    body: string,
+    pinned = false,
+  ): Promise<{ data: DiscussionPost; post: DiscussionPost; meta?: ApiV1Meta }> {
+    const response = await this.request<{
+      data?: DiscussionPost;
+      post?: DiscussionPost;
+      meta?: ApiV1Meta;
+    }>(`/v1/groups/${encodeURIComponent(groupId)}/discussions`, {
       body: JSON.stringify({ body, pinned }),
       method: 'POST',
     });
+
+    const post = response.data ?? response.post!;
+    return {
+      data: post,
+      post,
+      meta: response.meta,
+    };
   }
 
-  async registerDevice(payload: {
-    appVersion?: string;
-    deviceId: string;
-    locale?: string;
-    platform: 'ios' | 'android';
-    pushToken?: string | null;
-  }) {
+  async registerDevice(payload: DeviceRegistrationPayload) {
     return this.request<{
       data: { deviceId: string; platform?: string; registeredAt?: string; registered?: boolean };
       meta: ApiV1Meta;

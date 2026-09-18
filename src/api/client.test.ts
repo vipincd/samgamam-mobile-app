@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { apiClient, normalizeEventSummary } from './client';
+import { apiClient, normalizeEventSummary, ApiError, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
 
 jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => undefined),
@@ -425,5 +425,332 @@ describe('verified /api/v1 screen contracts', () => {
     });
     expect(fetchMock.mock.calls[1][0]).toContain('/api/v1/devices/register');
     expect(reg.data.registered).toBe(true);
+  });
+});
+
+describe("Phase 2 API contract hardening and error model", () => {
+  beforeEach(async () => {
+    await apiClient.setAccessToken(null);
+    apiClient.setTokenExpiredHandler(async () => false);
+  });
+
+  it("configures a default bounded request timeout of 15 seconds", () => {
+    expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(15000);
+  });
+
+  it("handles successful response and captures x-request-id in meta", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "ev-1", title: "Test Event" }],
+          meta: { requestId: "req-success-123" },
+        }),
+        {
+          headers: { "content-type": "application/json", "x-request-id": "req-success-123" },
+          status: 200,
+        },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const res = await apiClient.getEvents("en");
+    expect(res.events).toHaveLength(1);
+    expect(res.meta?.requestId).toBe("req-success-123");
+  });
+
+  it("handles empty successful response without error", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [],
+          page: { hasNextPage: false, nextCursor: null },
+          meta: { requestId: "req-empty-1" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const res = await apiClient.getEvents("en");
+    expect(res.events).toEqual([]);
+    expect(res.page?.hasNextPage).toBe(false);
+  });
+
+  it("handles 401 authentication error and clears local access token", async () => {
+    await apiClient.setAccessToken("expired-tok");
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "authentication_required", message: "Sign in required", requestId: "req-401" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 401 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await expect(apiClient.getViewerProfile("en")).rejects.toThrow(ApiError);
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
+  });
+
+  it("handles 403 authorization error without triggering token refresh", async () => {
+    await apiClient.setAccessToken("valid-user-tok");
+    const refreshSpy = jest.fn().mockResolvedValue(true);
+    apiClient.setTokenExpiredHandler(refreshSpy);
+
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "forbidden", message: "Only active members can access", requestId: "req-403" },
+        }),
+        { headers: { "content-type": "application/json", "x-request-id": "req-403" }, status: 403 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    let caughtError: ApiError | null = null;
+    try {
+      await apiClient.getDiscussions("group-private", "en");
+    } catch (err) {
+      caughtError = err as ApiError;
+    }
+
+    expect(caughtError).toBeInstanceOf(ApiError);
+    expect(caughtError?.status).toBe(403);
+    expect(caughtError?.code).toBe("forbidden");
+    expect(caughtError?.isForbidden).toBe(true);
+    expect(caughtError?.isAuthError).toBe(false);
+    expect(caughtError?.requestId).toBe("req-403");
+    // CRITICAL: 403 must NOT trigger token refresh!
+    expect(refreshSpy).not.toHaveBeenCalled();
+    // 403 must NOT clear access token
+    expect(apiClient.hasStoredAccessToken()).toBe(true);
+  });
+
+  it("handles 404 not found with machine-readable error code", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "event_not_found", message: "Event not found", requestId: "req-404" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 404 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    let caught: ApiError | null = null;
+    try {
+      await apiClient.getEvent("missing-event");
+    } catch (err) {
+      caught = err as ApiError;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.status).toBe(404);
+    expect(caught?.code).toBe("event_not_found");
+    expect(caught?.isNotFound).toBe(true);
+  });
+
+  it("handles 409 conflict (e.g. event_cancelled)", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "event_cancelled", message: "Event cancelled", requestId: "req-409" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 409 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    let caught: ApiError | null = null;
+    try {
+      await apiClient.rsvpToEvent("cancelled-event", "going");
+    } catch (err) {
+      caught = err as ApiError;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.status).toBe(409);
+    expect(caught?.code).toBe("event_cancelled");
+    expect(caught?.isConflict).toBe(true);
+  });
+
+  it("handles 400 validation error with details array", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "validation_failed",
+            message: "The request is invalid.",
+            details: [{ field: "limit", code: "out_of_range" }],
+            requestId: "req-val-1",
+          },
+        }),
+        { headers: { "content-type": "application/json" }, status: 400 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    let caught: ApiError | null = null;
+    try {
+      await apiClient.getEvents({ limit: 999 });
+    } catch (err) {
+      caught = err as ApiError;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.status).toBe(400);
+    expect(caught?.code).toBe("validation_failed");
+    expect(caught?.isValidationError).toBe(true);
+    expect(caught?.details).toEqual([{ field: "limit", code: "out_of_range" }]);
+  });
+
+  it("handles 500 server error", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "internal_error", message: "Internal server error" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 500 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    let caught: ApiError | null = null;
+    try {
+      await apiClient.getEvents("en");
+    } catch (err) {
+      caught = err as ApiError;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.status).toBe(500);
+    expect(caught?.isServerError).toBe(true);
+  });
+
+  it("handles network failure (fetch rejected)", async () => {
+    const fetchMock = jest.fn().mockRejectedValue(new Error("Network connection lost"));
+    global.fetch = fetchMock as never;
+
+    let caught: ApiError | null = null;
+    try {
+      await apiClient.getEvents("en");
+    } catch (err) {
+      caught = err as ApiError;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.status).toBe(0);
+    expect(caught?.code).toBe("network_error");
+    expect(caught?.isNetworkError).toBe(true);
+  });
+
+  it("handles invalid JSON responses gracefully", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response("<html>Bad Gateway 502</html>", {
+        headers: { "content-type": "application/json" },
+        status: 502,
+      }),
+    );
+    global.fetch = fetchMock as never;
+
+    let caught: ApiError | null = null;
+    try {
+      await apiClient.getEvents("en");
+    } catch (err) {
+      caught = err as ApiError;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.code).toBe("invalid_json");
+    expect(caught?.status).toBe(502);
+  });
+
+  it("executes a single 401 refresh retry cycle and succeeds", async () => {
+    await apiClient.setAccessToken("stale-tok");
+    let refreshAttempts = 0;
+    apiClient.setTokenExpiredHandler(async () => {
+      refreshAttempts++;
+      await apiClient.setAccessToken("fresh-tok");
+      return true;
+    });
+
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { code: "token_expired", message: "Expired" } }),
+          { headers: { "content-type": "application/json" }, status: 401 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { viewer: { id: "u-1", email: "u@ex.local", fullName: "U", emailVerified: true, roles: ["user"] }, locale: "en" },
+            meta: { requestId: "req-refreshed" },
+          }),
+          { headers: { "content-type": "application/json" }, status: 200 },
+        ),
+      );
+    global.fetch = fetchMock as never;
+
+    const res = await apiClient.getViewerProfile("en");
+    expect(refreshAttempts).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.data.viewer?.id).toBe("u-1");
+  });
+
+  it("posts discussions to versioned /api/v1/groups/:id/discussions route", async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            id: "post-v1-new",
+            authorId: "user-1",
+            authorName: "Vipin",
+            body: "New v1 discussion message",
+            pinned: false,
+            createdAt: "2026-09-18T20:00:00.000Z",
+          },
+          meta: { requestId: "req-disc-post-1" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 201 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const result = await apiClient.createDiscussion("group-123", "New v1 discussion message");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain("/api/v1/groups/group-123/discussions");
+    expect(calledInit.method).toBe("POST");
+    expect(JSON.parse(calledInit.body as string)).toEqual({
+      body: "New v1 discussion message",
+      pinned: false,
+    });
+    // Supports both .post and .data for backward and forward compatibility
+    expect(result.post.id).toBe("post-v1-new");
+    expect(result.data.id).toBe("post-v1-new");
+  });
+
+  it("revokes token durably via /api/v1/auth/revoke on logout", async () => {
+    await apiClient.setAccessToken("token-to-revoke");
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: { revoked: true },
+          meta: { requestId: "req-revoke-1" },
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await apiClient.logout();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain("/api/v1/auth/revoke");
+    expect(calledInit.method).toBe("POST");
+    expect(JSON.parse(calledInit.body as string)).toEqual({ token: "token-to-revoke" });
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
   });
 });
