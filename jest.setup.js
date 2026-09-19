@@ -53,3 +53,38 @@ jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(async () => undefined),
   setOptions: jest.fn(),
 }));
+
+jest.mock('expo-notifications', () => ({
+  getPermissionsAsync: jest.fn(async () => ({
+    status: 'granted',
+    granted: true,
+    canAskAgain: true,
+  })),
+  requestPermissionsAsync: jest.fn(async () => ({
+    status: 'granted',
+    granted: true,
+    canAskAgain: true,
+  })),
+  getExpoPushTokenAsync: jest.fn(async () => ({
+    data: 'ExponentPushToken[mock-push-token-123456]',
+  })),
+  setNotificationHandler: jest.fn(),
+  addNotificationReceivedListener: jest.fn(() => ({
+    remove: jest.fn(),
+  })),
+  addNotificationResponseReceivedListener: jest.fn(() => ({
+    remove: jest.fn(),
+  })),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
+}));
+
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    isAvailableAsync: jest.fn(async () => true),
+    getItemAsync: jest.fn(async (key) => store.get(key) ?? null),
+    setItemAsync: jest.fn(async (key, val) => { store.set(key, val); }),
+    deleteItemAsync: jest.fn(async (key) => { store.delete(key); }),
+    _clear: () => store.clear(),
+  };
+});

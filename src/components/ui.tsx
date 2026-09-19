@@ -38,6 +38,9 @@ export function Surface(props: {
 }
 
 export function Button(props: {
+  accessibilityLabel?: string;
+  accessibilityRole?: "button";
+  accessibilityState?: { disabled?: boolean };
   compact?: boolean;
   disabled?: boolean;
   label: string;
@@ -50,7 +53,9 @@ export function Button(props: {
 
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      accessibilityRole={props.accessibilityRole ?? "button"}
+      accessibilityState={props.accessibilityState ?? (props.disabled !== undefined ? { disabled: props.disabled } : undefined)}
       disabled={props.disabled}
       onPress={props.onPress}
       style={({ pressed }) => [

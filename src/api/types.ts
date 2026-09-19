@@ -222,6 +222,23 @@ export interface RsvpResponse {
   meta?: ApiV1Meta;
 }
 
+
+export interface GroupMembershipResponse {
+  data?: GroupSummary & {
+    group?: GroupSummary;
+    membership?: {
+      status: string | null;
+      role: string | null;
+    };
+  };
+  group: GroupSummary;
+  membership: {
+    status: string | null;
+    role: string | null;
+  };
+  meta?: ApiV1Meta;
+}
+
 export interface HealthResponse {
   status: string;
   service: string;

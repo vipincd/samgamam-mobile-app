@@ -15,6 +15,7 @@ import type {
   EventListResponse,
   EventSummary,
   GroupListResponse,
+  GroupMembershipResponse,
   GroupSummary,
   HealthResponse,
   HelpResponse,
@@ -677,6 +678,10 @@ class ApiClient {
     };
   }
 
+  async cancelRsvp(eventId: string): Promise<RsvpResponse> {
+    return this.rsvpToEvent(eventId, "cancelled");
+  }
+
   async getGroups(
     options?:
       | string
@@ -724,6 +729,57 @@ class ApiClient {
     return {
       data: response.data,
       group: response.data,
+      meta: response.meta,
+    };
+  }
+
+
+  async joinGroup(groupId: string): Promise<GroupMembershipResponse> {
+    const response = await this.request<{
+      data: GroupSummary & {
+        group?: GroupSummary;
+        membership?: { status: string | null; role: string | null };
+      };
+      meta: ApiV1Meta;
+    }>(`/v1/groups/${encodeURIComponent(groupId)}/membership`, {
+      method: "POST",
+    });
+
+    const group = response.data.group ?? response.data;
+    const membership = response.data.membership ?? {
+      status: group.viewerMembershipStatus,
+      role: group.viewerMembershipRole,
+    };
+
+    return {
+      data: response.data,
+      group,
+      membership,
+      meta: response.meta,
+    };
+  }
+
+  async leaveGroup(groupId: string): Promise<GroupMembershipResponse> {
+    const response = await this.request<{
+      data: GroupSummary & {
+        group?: GroupSummary;
+        membership?: { status: string | null; role: string | null };
+      };
+      meta: ApiV1Meta;
+    }>(`/v1/groups/${encodeURIComponent(groupId)}/membership`, {
+      method: "DELETE",
+    });
+
+    const group = response.data.group ?? response.data;
+    const membership = response.data.membership ?? {
+      status: group.viewerMembershipStatus,
+      role: group.viewerMembershipRole,
+    };
+
+    return {
+      data: response.data,
+      group,
+      membership,
       meta: response.meta,
     };
   }

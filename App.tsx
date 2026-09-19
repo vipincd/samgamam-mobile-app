@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   AccessibilityInfo,
+  Linking,
   Pressable,
-
   StyleSheet,
   Text,
   View,
@@ -30,6 +30,14 @@ import { AuthTestScreen } from './src/screens/AuthTestScreen';
 import { GroupsScreen } from './src/screens/GroupsScreen';
 import { HelpScreen } from './src/screens/HelpScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
+import { parseDeepLinkUrl, type NavigationTarget } from './src/services/deep-links';
+import {
+  configureForegroundNotifications,
+  addNotificationResponseListener,
+  checkColdStartNotificationAsync,
+  registerDevicePushTokenAsync,
+  unregisterDeviceOnLogoutAsync,
+} from './src/services/notifications';
 
 
 type ProductionTabKey = 'discover' | 'groups' | 'help' | 'profile';
@@ -145,6 +153,24 @@ function AppContent() {
   const [slowStartup, setSlowStartup] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('discover');
+  const [targetEventId, setTargetEventId] = useState<string | null>(null);
+  const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
+
+  function handleNavigationTarget(target: NavigationTarget) {
+    if (target.type === 'event') {
+      setTargetEventId(target.id);
+      setActiveTab('discover');
+    } else if (target.type === 'group') {
+      setTargetGroupId(target.id);
+      setActiveTab('groups');
+    } else if (target.type === 'notification') {
+      setActiveTab('profile');
+    } else if (target.type === 'discover') {
+      setActiveTab('discover');
+    } else if (target.type === 'groups') {
+      setActiveTab('groups');
+    }
+  }
   const [authState, setAuthState] = useState<ProductAuthState>(() => {
     const s = sessionManager.getState();
     return {
@@ -207,6 +233,45 @@ function AppContent() {
     return () => clearTimeout(timer);
   }, [bootstrapping]);
 
+  useEffect(() => {
+    configureForegroundNotifications();
+
+    const urlSub = Linking.addEventListener('url', ({ url }: { url: string }) => {
+      const target = parseDeepLinkUrl(url);
+      handleNavigationTarget(target);
+    });
+
+    void Linking.getInitialURL().then((url: string | null) => {
+      if (url) {
+        const target = parseDeepLinkUrl(url);
+        handleNavigationTarget(target);
+      }
+    });
+
+    const notifSub = addNotificationResponseListener((target) => {
+      handleNavigationTarget(target);
+    });
+
+    void checkColdStartNotificationAsync().then((target) => {
+      if (target && target.type !== 'unknown') {
+        handleNavigationTarget(target);
+      }
+    });
+
+    return () => {
+      urlSub.remove();
+      notifSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authState.status === 'authenticated' && authState.session.viewer?.id) {
+      void registerDevicePushTokenAsync(apiClient, authState.session.viewer.id, {
+        locale: authState.session.locale ?? undefined,
+      });
+    }
+  }, [authState.status, authState.session.viewer?.id, authState.session.locale]);
+
   async function handleSaveApiBaseUrl(value: string | null) {
     const nextBaseUrl = await apiClient.setApiBaseUrl(value);
     setApiBaseUrl(nextBaseUrl);
@@ -219,6 +284,7 @@ function AppContent() {
   }
 
   async function handleLogout() {
+    await unregisterDeviceOnLogoutAsync(apiClient);
     await sessionManager.signOut();
   }
 
@@ -242,6 +308,8 @@ function AppContent() {
       authenticated={session.authenticated}
       isFocused={activeTab === 'discover'}
       viewerName={session.viewer?.fullName ?? null}
+      targetEventId={targetEventId}
+      onClearTargetEventId={() => setTargetEventId(null)}
     />
   );
 
@@ -251,6 +319,8 @@ function AppContent() {
         {...sharedScreenProps}
         authenticated={session.authenticated}
         isFocused
+        targetGroupId={targetGroupId}
+        onClearTargetGroupId={() => setTargetGroupId(null)}
       />
     );
   } else if (activeTab === 'help') {
@@ -278,6 +348,7 @@ function AppContent() {
         onSaveApiBaseUrl={handleSaveApiBaseUrl}
         authStatus={authState.status}
         session={session}
+        onNavigateTarget={handleNavigationTarget}
       />
     );
   } else if (__DEV__ && activeTab === 'auth-test') {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -27,15 +28,57 @@ export function GroupsScreen(props: {
   isFocused: boolean;
   locale: string;
   onRequestSignIn: () => void;
+  targetGroupId?: string | null;
+  onClearTargetGroupId?: () => void;
 }) {
+  const { targetGroupId, onClearTargetGroupId } = props;
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!targetGroupId) return;
+    let cancelled = false;
+
+    async function loadTargetGroup(id: string) {
+      setSelectedGroupId(id);
+      try {
+        const existing = groups.find((g) => g.id === id);
+        if (!existing) {
+          const res = await apiClient.getGroup(id, props.locale);
+          if (!cancelled && res.group) {
+            setGroups((prev) => {
+              if (prev.some((g) => g.id === res.group.id)) {
+                return prev.map((g) => (g.id === res.group.id ? res.group : g));
+              }
+              return [res.group, ...prev];
+            });
+            setSelectedGroupId(res.group.id);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          onClearTargetGroupId?.();
+        }
+      }
+    }
+
+    void loadTargetGroup(targetGroupId);
+    return () => {
+      cancelled = true;
+    };
+  }, [targetGroupId, props.locale, onClearTargetGroupId, groups]);
   const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
   const [draftMessage, setDraftMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [discussionLoading, setDiscussionLoading] = useState(false);
+  const [discussionForbidden, setDiscussionForbidden] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [mutatingGroupId, setMutatingGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -50,9 +93,13 @@ export function GroupsScreen(props: {
   // Membership state distinctions
   const isAnonymous = !props.authenticated;
   const membershipStatus = selectedGroup?.viewerMembershipStatus ?? null;
+  const membershipRole = selectedGroup?.viewerMembershipRole ?? null;
   const isActiveMember = props.authenticated && membershipStatus === "active";
   const isPendingMember = props.authenticated && membershipStatus === "pending";
-    const canOpenSelectedDiscussion = isActiveMember;
+  const isOrganizerOrCoOrganizer =
+    props.authenticated &&
+    (membershipRole === "organizer" || membershipRole === "co-organizer");
+  const canOpenSelectedDiscussion = isActiveMember;
 
   async function loadGroups(isRefresh = false) {
     if (isRefresh) {
@@ -70,12 +117,18 @@ export function GroupsScreen(props: {
         limit: 10,
       });
 
-      setGroups(response.groups);
+      setGroups((prev) => {
+        const selected = prev.find((g) => g.id === selectedGroupId);
+        if (selected && !response.groups.some((g) => g.id === selected.id)) {
+          return [selected, ...response.groups];
+        }
+        return response.groups;
+      });
       setNextCursor(response.page?.nextCursor ?? null);
       setHasNextPage(Boolean(response.page?.hasNextPage && response.page?.nextCursor));
 
       setSelectedGroupId((currentValue) => {
-        if (currentValue && response.groups.some((group) => group.id === currentValue)) {
+        if (currentValue) {
           return currentValue;
         }
 
@@ -123,6 +176,8 @@ export function GroupsScreen(props: {
   }
 
   async function loadDiscussions(group: GroupSummary) {
+    setDiscussionForbidden(false);
+
     if (!props.authenticated) {
       setDiscussions([]);
       setNotice("Sign in to read and post in community discussions.");
@@ -137,7 +192,7 @@ export function GroupsScreen(props: {
 
     if (group.viewerMembershipStatus !== "active") {
       setDiscussions([]);
-      setNotice("This circle is visible to the community, but discussions are reserved for members.");
+      setNotice("This circle is visible to the community, but discussions are reserved for active members.");
       return;
     }
 
@@ -152,8 +207,13 @@ export function GroupsScreen(props: {
           ? "No one has posted yet. Start the conversation."
           : null,
       );
-    } catch (loadError) {
-      setError(getErrorMessage(loadError));
+    } catch (loadError: any) {
+      if (loadError?.status === 403 || loadError?.code === "forbidden") {
+        setDiscussionForbidden(true);
+        setDiscussions([]);
+      } else {
+        setError(getErrorMessage(loadError));
+      }
     } finally {
       setDiscussionLoading(false);
     }
@@ -174,6 +234,111 @@ export function GroupsScreen(props: {
 
     void loadDiscussions(selectedGroup);
   }, [props.authenticated, props.isFocused, props.locale, selectedGroupId, groups]);
+
+  async function handleJoin(group: GroupSummary) {
+    if (!props.authenticated) {
+      props.onRequestSignIn();
+      return;
+    }
+
+    if (mutatingGroupId) {
+      return;
+    }
+
+    setMutatingGroupId(group.id);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const res = await apiClient.joinGroup(group.id);
+      const updated = res.group;
+
+      setGroups((current) =>
+        current.map((g) => (g.id === updated.id ? updated : g))
+      );
+
+      if (updated.viewerMembershipStatus === "active") {
+        setNotice("You joined " + updated.name + "! Member discussions are now unlocked.");
+        if (selectedGroupId === updated.id) {
+          void loadDiscussions(updated);
+        }
+      } else if (updated.viewerMembershipStatus === "pending") {
+        setNotice("Your request to join " + updated.name + " is pending organizer approval.");
+        if (selectedGroupId === updated.id) {
+          setDiscussions([]);
+        }
+      }
+    } catch (joinErr) {
+      setError(getErrorMessage(joinErr));
+    } finally {
+      setMutatingGroupId(null);
+    }
+  }
+
+  async function executeLeave(group: GroupSummary) {
+    if (!props.authenticated || mutatingGroupId) {
+      return;
+    }
+
+    if (
+      group.viewerMembershipRole === "organizer" ||
+      group.viewerMembershipRole === "co-organizer"
+    ) {
+      setError("Group organizers and co-organizers cannot leave without transferring ownership in Admin.");
+      return;
+    }
+
+    setMutatingGroupId(group.id);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const res = await apiClient.leaveGroup(group.id);
+      const updated = res.group;
+
+      setGroups((current) =>
+        current.map((g) => (g.id === updated.id ? updated : g))
+      );
+
+      if (selectedGroupId === updated.id) {
+        setDiscussions([]);
+      }
+
+      setNotice(
+        group.viewerMembershipStatus === "pending"
+          ? "Membership request cancelled."
+          : "You have left " + group.name + "."
+      );
+    } catch (leaveErr) {
+      setError(getErrorMessage(leaveErr));
+    } finally {
+      setMutatingGroupId(null);
+    }
+  }
+
+  function confirmLeave(group: GroupSummary) {
+    const isPending = group.viewerMembershipStatus === "pending";
+    const title = isPending ? "Cancel Membership Request?" : "Leave " + group.name + "?";
+    const message = isPending
+      ? "Are you sure you want to withdraw your join request?"
+      : "You will lose access to member discussions and community updates.";
+
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: "Keep membership", style: "cancel" },
+        {
+          text: isPending ? "Cancel request" : "Leave circle",
+          style: "destructive",
+          onPress: () => {
+            void executeLeave(group);
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }
 
   async function handlePostDiscussion() {
     if (!selectedGroup) {
@@ -215,6 +380,15 @@ export function GroupsScreen(props: {
     if (!props.authenticated) {
       return { label: "Preview", tone: "default" as const };
     }
+    if (group.viewerMembershipRole === "organizer") {
+      return { label: "Organizer", tone: "accent" as const };
+    }
+    if (group.viewerMembershipRole === "co-organizer") {
+      return { label: "Co-organizer", tone: "accent" as const };
+    }
+    if (group.viewerMembershipRole === "moderator") {
+      return { label: "Moderator", tone: "accent" as const };
+    }
     if (group.viewerMembershipStatus === "active") {
       return { label: "Active member", tone: "success" as const };
     }
@@ -240,7 +414,7 @@ export function GroupsScreen(props: {
     >
       <ScreenIntro
         eyebrow="Groups"
-        subtitle="Browse community circles, inspect membership status, and load real discussion threads from the backend."
+        subtitle="Browse community circles, inspect membership status, and participate in authentic member discussions."
         title="Keep each circle feeling alive."
       />
 
@@ -262,6 +436,12 @@ export function GroupsScreen(props: {
       {groups.map((group) => {
         const isSelected = group.id === selectedGroupId;
         const badge = getMembershipBadge(group);
+        const isMutating = mutatingGroupId === group.id;
+        const isGroupActive = props.authenticated && group.viewerMembershipStatus === "active";
+        const isGroupPending = props.authenticated && group.viewerMembershipStatus === "pending";
+        const isGroupOrganizer =
+          props.authenticated &&
+          (group.viewerMembershipRole === "organizer" || group.viewerMembershipRole === "co-organizer");
 
         return (
           <Surface
@@ -285,14 +465,84 @@ export function GroupsScreen(props: {
                 <Pill key={tag} label={tag} />
               ))}
             </View>
-            <Button
-              label={isSelected ? "Viewing circle" : "Open circle"}
-              onPress={() => {
-                setSelectedGroupId(group.id);
-                setNotice(null);
-              }}
-              variant={isSelected ? "secondary" : "ghost"}
-            />
+
+            <View style={styles.groupActionsRow}>
+              <Button
+                accessibilityLabel={"View circle " + group.name}
+                accessibilityRole="button"
+                label={isSelected ? "Viewing circle" : "Open circle"}
+                onPress={() => {
+                  setSelectedGroupId(group.id);
+                  setNotice(null);
+                }}
+                style={styles.actionButtonFlex}
+                variant={isSelected ? "secondary" : "ghost"}
+              />
+
+              {!props.authenticated ? (
+                <Button
+                  accessibilityLabel="Sign in to join group"
+                  accessibilityRole="button"
+                  label="Sign in to join"
+                  onPress={props.onRequestSignIn}
+                  style={styles.actionButtonFlex}
+                  variant="primary"
+                />
+              ) : isGroupActive ? (
+                isGroupOrganizer ? (
+                  <Button
+                    accessibilityLabel="Organizer controls managed in admin"
+                    accessibilityRole="button"
+                    disabled
+                    label="Organizer"
+                    onPress={() => {}}
+                    style={styles.actionButtonFlex}
+                    variant="ghost"
+                  />
+                ) : (
+                  <Button
+                    accessibilityLabel={"Leave circle " + group.name}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: isMutating }}
+                    disabled={isMutating}
+                    label={isMutating ? "Leaving..." : "Leave circle"}
+                    onPress={() => confirmLeave(group)}
+                    style={styles.actionButtonFlex}
+                    variant="ghost"
+                  />
+                )
+              ) : isGroupPending ? (
+                <Button
+                  accessibilityLabel={"Cancel request to join " + group.name}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isMutating }}
+                  disabled={isMutating}
+                  label={isMutating ? "Cancelling..." : "Cancel request"}
+                  onPress={() => confirmLeave(group)}
+                  style={styles.actionButtonFlex}
+                  variant="ghost"
+                />
+              ) : (
+                <Button
+                  accessibilityLabel={group.requiresApproval ? "Request to join " + group.name : "Join circle " + group.name}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isMutating }}
+                  disabled={isMutating}
+                  label={
+                    isMutating
+                      ? "Submitting..."
+                      : group.requiresApproval
+                        ? "Request to join"
+                        : "Join circle"
+                  }
+                  onPress={() => {
+                    void handleJoin(group);
+                  }}
+                  style={styles.actionButtonFlex}
+                  variant="primary"
+                />
+              )}
+            </View>
           </Surface>
         );
       })}
@@ -311,34 +561,84 @@ export function GroupsScreen(props: {
       {selectedGroup ? (
         <Surface style={styles.discussionCard}>
           <SectionHeader
-            subtitle={`Selected group: ${selectedGroup.name}`}
+            subtitle={"Selected group: " + selectedGroup.name}
             title="Discussion lounge"
           />
-          {!canOpenSelectedDiscussion ? (
+          {isOrganizerOrCoOrganizer ? (
             <InlineNotice
-              message={
-                isAnonymous
-                  ? "Sign in to open the live discussion feed."
-                  : isPendingMember
-                    ? "Your membership is awaiting organizer approval. Discussions will unlock once approved."
-                    : selectedGroup.requiresApproval
-                      ? "This circle requires organizer approval to join. Membership is needed to access discussions."
-                      : "You are currently a non-member. Join this group to access discussions."
-              }
-              tone={isPendingMember ? "accent" : "warning"}
-              title={
-                isAnonymous
-                  ? "Discussion locked"
-                  : isPendingMember
-                    ? "Membership pending"
-                    : "Members-only discussion"
-              }
+              message="You are an organizer of this circle. Circle administration is available in the web portal."
+              tone="accent"
+              title="Organizer access"
             />
+          ) : null}
+          {!canOpenSelectedDiscussion ? (
+            <View style={styles.lockedDiscussionBox}>
+              <InlineNotice
+                message={
+                  isAnonymous
+                    ? "Sign in to join this circle and access discussions."
+                    : isPendingMember
+                      ? "Your membership is awaiting organizer approval. Discussions will unlock once approved."
+                      : selectedGroup.requiresApproval
+                        ? "This circle requires organizer approval to join. Membership is needed to access discussions."
+                        : "You are currently a non-member. Join this group to access discussions."
+                }
+                tone={isPendingMember ? "accent" : "warning"}
+                title={
+                  isAnonymous
+                    ? "Discussion locked"
+                    : isPendingMember
+                      ? "Membership pending"
+                      : discussionForbidden
+                        ? "Forbidden: Members only"
+                        : "Members-only discussion"
+                }
+              />
+              <View style={styles.lockedActionRow}>
+                {isAnonymous ? (
+                  <Button
+                    accessibilityLabel="Sign in from discussion lounge"
+                    accessibilityRole="button"
+                    label="Sign in to participate"
+                    onPress={props.onRequestSignIn}
+                    variant="primary"
+                  />
+                ) : isPendingMember ? (
+                  <Button
+                    accessibilityLabel="Cancel pending membership request"
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: Boolean(mutatingGroupId) }}
+                    disabled={Boolean(mutatingGroupId)}
+                    label={mutatingGroupId === selectedGroup.id ? "Cancelling..." : "Cancel join request"}
+                    onPress={() => confirmLeave(selectedGroup)}
+                    variant="ghost"
+                  />
+                ) : (
+                  <Button
+                    accessibilityLabel={selectedGroup.requiresApproval ? "Request to join circle" : "Join circle to participate"}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: Boolean(mutatingGroupId) }}
+                    disabled={Boolean(mutatingGroupId)}
+                    label={
+                      mutatingGroupId === selectedGroup.id
+                        ? "Submitting..."
+                        : selectedGroup.requiresApproval
+                          ? "Request to join circle"
+                          : "Join circle to participate"
+                    }
+                    onPress={() => {
+                      void handleJoin(selectedGroup);
+                    }}
+                    variant="primary"
+                  />
+                )}
+              </View>
+            </View>
           ) : null}
           {discussionLoading ? (
             <Text style={styles.loadingText}>Loading posts...</Text>
           ) : null}
-          {canOpenSelectedDiscussion && discussions.length === 0 && !discussionLoading ? (
+          {canOpenSelectedDiscussion && discussions.length === 0 && !discussionLoading && !discussionForbidden ? (
             <EmptyState
               message="Be the first person to leave a useful note for the group."
               title="No posts yet"
@@ -435,8 +735,22 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     rowGap: 8,
   },
+  groupActionsRow: {
+    columnGap: 10,
+    flexDirection: "row",
+    marginTop: 4,
+  },
+  actionButtonFlex: {
+    flex: 1,
+  },
   discussionCard: {
     gap: 14,
+  },
+  lockedDiscussionBox: {
+    gap: 10,
+  },
+  lockedActionRow: {
+    flexDirection: "row",
   },
   loadingText: {
     color: theme.colors.muted,

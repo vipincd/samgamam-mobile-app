@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 
 import { apiClient, getErrorMessage } from '../api/client';
+import { parseDeepLinkUrl, type NavigationTarget } from "../services/deep-links";
 import type {
   AnalyticsOverview,
   AuthSessionResponse,
@@ -58,6 +59,7 @@ export function ProfileScreen(props: {
   onRefreshSession: () => Promise<void>;
   onSaveApiBaseUrl: (value: string | null) => Promise<string>;
   session: AuthSessionResponse;
+  onNavigateTarget?: (target: NavigationTarget) => void;
 }) {
   const [draftApiBaseUrl, setDraftApiBaseUrl] = useState(props.apiBaseUrl);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -450,17 +452,37 @@ export function ProfileScreen(props: {
               <Text style={styles.notificationMeta}>
                 {formatDateTime(notification.createdAt, props.locale)}
               </Text>
-              {notification.status !== 'read' ? (
-                <Button
-                  compact
-                  disabled={markingNotificationId === notification.id}
-                  label={markingNotificationId === notification.id ? 'Saving...' : 'Mark read'}
-                  onPress={() => {
-                    void handleMarkNotificationRead(notification.id);
-                  }}
-                  variant="ghost"
-                />
-              ) : null}
+              <View style={styles.row}>
+                {notification.targetUrl ? (
+                  <Button
+                    compact
+                    label="View details"
+                    onPress={() => {
+                      if (notification.status !== "read") {
+                        void handleMarkNotificationRead(notification.id);
+                      }
+                      const target = parseDeepLinkUrl(notification.targetUrl);
+                      if (target.type !== "unknown") {
+                        props.onNavigateTarget?.(target);
+                      }
+                    }}
+                    style={styles.flexButton}
+                    variant="secondary"
+                  />
+                ) : null}
+                {notification.status !== 'read' ? (
+                  <Button
+                    compact
+                    disabled={markingNotificationId === notification.id}
+                    label={markingNotificationId === notification.id ? 'Saving...' : 'Mark read'}
+                    onPress={() => {
+                      void handleMarkNotificationRead(notification.id);
+                    }}
+                    style={notification.targetUrl ? styles.flexButton : undefined}
+                    variant="ghost"
+                  />
+                ) : null}
+              </View>
             </Surface>
           ))}
         </Surface>

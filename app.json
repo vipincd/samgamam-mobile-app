@@ -38,7 +38,9 @@
           "imageWidth": 280,
           "resizeMode": "contain"
         }
-      ]
-    ]
+      ],
+      "expo-notifications"
+    ],
+    "scheme": "samgamam"
   }
 }
