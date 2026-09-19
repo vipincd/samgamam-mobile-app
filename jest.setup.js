@@ -88,3 +88,16 @@ jest.mock('expo-secure-store', () => {
     _clear: () => store.clear(),
   };
 });
+
+jest.mock("expo-camera", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+
+  return {
+    CameraView: (props) => React.createElement(View, props, props.children),
+    useCameraPermissions: jest.fn(() => [
+      { granted: true, canAskAgain: true, status: "granted" },
+      jest.fn(async () => ({ granted: true, status: "granted" })),
+    ]),
+  };
+});

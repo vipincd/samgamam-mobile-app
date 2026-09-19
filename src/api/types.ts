@@ -31,6 +31,7 @@ export interface EventSummary {
   remainingCapacity?: number | null;
   availability?: 'available' | 'waitlist' | 'full';
   status?: string;
+  cancellationReason?: string;
   ticketPriceCents: number;
   currency: string;
   isPaid: boolean;
@@ -276,4 +277,79 @@ export interface ApiV1ErrorPayload {
     requestId?: string;
     details?: ApiV1ErrorDetail[];
   };
+}
+
+export interface AttendeeItem {
+  id?: string;
+  userId: string;
+  fullName: string;
+  email?: string;
+  state: RsvpState;
+  checkedIn: boolean;
+  checkedInAt?: string;
+  createdAt: string;
+  dietaryRequirements?: string;
+  ticketVersion?: number;
+}
+
+export interface AttendanceScanResult {
+  status: "success" | "already_checked_in" | "invalid";
+  attendee?: {
+    userId: string;
+    fullName: string;
+    eventTitle: string;
+    checkedInAt: string;
+  };
+  scannedAt?: string;
+  reason?: string;
+}
+
+export interface EventAnalytics {
+  eventId: string;
+  views: number;
+  clicks: number;
+  rsvps: number;
+  shares: number;
+  invitesSent?: number;
+  inviteAccepts?: number;
+  conversionRate: number;
+  inviteConversionRate?: number;
+  promotionLift?: number;
+  checkedInCount?: number;
+  totalScans?: number;
+  failedScans?: number;
+  estimatedRevenueCents?: number;
+}
+
+export interface GroupMemberItem {
+  userId: string;
+  role: string;
+  status: "active" | "pending" | "rejected";
+  joinedAt: string;
+}
+
+export interface EventUpdateInput {
+  title?: string;
+  description?: string;
+  startsAt?: string;
+  endsAt?: string;
+  location?: string;
+  capacity?: number | null;
+  capacityMode?: "limited" | "unlimited";
+  category?: string;
+  currency?: string;
+  isPaid?: boolean;
+  ticketPriceCents?: number;
+  version?: number;
+}
+
+export interface EventCancelInput {
+  cancellationReason?: string;
+  version?: number;
+}
+
+export interface AnnouncementInput {
+  body: string;
+  pinned?: boolean;
+  kind?: "announcement" | "discussion";
 }

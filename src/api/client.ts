@@ -2,6 +2,13 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 import type {
+  AnnouncementInput,
+  AttendanceScanResult,
+  AttendeeItem,
+  EventAnalytics,
+  EventCancelInput,
+  EventUpdateInput,
+  GroupMemberItem,
   AnalyticsOverview,
   ApiErrorCategory,
   ApiV1Meta,
@@ -875,6 +882,121 @@ class ApiClient {
       method: 'POST',
     });
   }
+
+  async getOrganizerEvents(): Promise<{ events: EventSummary[]; overview: AnalyticsOverview }> {
+    const overview = await this.request<AnalyticsOverview>("/analytics");
+    const events = (overview.eventStats || []).map((s) => s.event).filter(Boolean);
+    return { events, overview };
+  }
+
+  async getEventAttendees(eventId: string): Promise<{ attendees: AttendeeItem[] }> {
+    return this.request<{ attendees: AttendeeItem[] }>(
+      `/events/${encodeURIComponent(eventId)}/attendees`
+    );
+  }
+
+  async scanTicket(eventId: string, token: string): Promise<AttendanceScanResult> {
+    const response = await this.request<{ result: AttendanceScanResult }>(
+      `/events/${encodeURIComponent(eventId)}/attendance/scan`,
+      {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }
+    );
+    return response.result;
+  }
+
+  async markAttendance(eventId: string, userId: string, checkedIn: boolean) {
+    return this.request<{
+      rsvp: {
+        id: string;
+        userId: string;
+        state: string;
+        checkedIn: boolean;
+        checkedInAt?: string;
+      };
+    }>(`/events/${encodeURIComponent(eventId)}/attendance`, {
+      method: "PATCH",
+      body: JSON.stringify({ userId, checkedIn }),
+    });
+  }
+
+  async getEventAnalytics(eventId: string): Promise<EventAnalytics> {
+    return this.request<EventAnalytics>(
+      `/analytics${buildQuery({ eventId })}`
+    );
+  }
+
+  async updateEvent(eventId: string, input: EventUpdateInput): Promise<{ event: EventSummary; noOp?: boolean }> {
+    return this.request<{ event: EventSummary; noOp?: boolean }>(
+      `/events/${encodeURIComponent(eventId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }
+    );
+  }
+
+  async cancelEvent(eventId: string, input: EventCancelInput): Promise<{ event: EventSummary; alreadyCancelled?: boolean }> {
+    return this.request<{ event: EventSummary; alreadyCancelled?: boolean }>(
+      `/events/${encodeURIComponent(eventId)}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      }
+    );
+  }
+
+  async sendAnnouncement(eventId: string, input: AnnouncementInput): Promise<{ post: DiscussionPost }> {
+    return this.request<{ post: DiscussionPost }>(
+      `/events/${encodeURIComponent(eventId)}/threads`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          body: input.body,
+          pinned: input.pinned ?? false,
+          kind: "announcement",
+        }),
+      }
+    );
+  }
+
+  async getGroupMembers(groupId: string, status?: string): Promise<ApiV1Response<GroupMemberItem[]>> {
+    return this.request<ApiV1Response<GroupMemberItem[]>>(
+      `/v1/groups/${encodeURIComponent(groupId)}/members${status ? buildQuery({ status }) : ""}`
+    );
+  }
+
+  async updateGroupMemberStatus(
+    groupId: string,
+    targetUserId: string,
+    action: "approve" | "reject"
+  ): Promise<ApiV1Response<{ groupId: string; targetUserId: string; status: string; role: string }>> {
+    return this.request<ApiV1Response<{ groupId: string; targetUserId: string; status: string; role: string }>>(
+      `/v1/groups/${encodeURIComponent(groupId)}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({ targetUserId, action }),
+      }
+    );
+  }
+
+  async askCopilotForEvent(
+    action: CopilotAction,
+    prompt: string,
+    eventContext?: { title?: string; description?: string; location?: string }
+  ): Promise<CopilotResponse> {
+    let contextualPrompt = prompt;
+    if (eventContext && (eventContext.title || eventContext.location)) {
+      contextualPrompt = `Event Context: Title "${eventContext.title || "Untitled"}", Location "${eventContext.location || "TBD"}", Description "${eventContext.description || ""}". Instructions: ${prompt}`;
+    }
+    return this.request<CopilotResponse>("/ai/copilot", {
+      method: "POST",
+      body: JSON.stringify({ action, prompt: contextualPrompt }),
+    });
+  }
+
 }
+
 
 export const apiClient = new ApiClient();

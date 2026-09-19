@@ -9,8 +9,10 @@ import {
 
 import { apiClient, getErrorMessage } from '../api/client';
 import { parseDeepLinkUrl, type NavigationTarget } from "../services/deep-links";
+import { OrganizerDashboardScreen } from "./OrganizerDashboardScreen";
 import type {
   AnalyticsOverview,
+  GroupSummary,
   AuthSessionResponse,
   GroupRecommendationItem,
   NotificationItem,
@@ -38,6 +40,7 @@ import {
 } from '../utils/format';
 
 export function ProfileScreen(props: {
+
   apiBaseUrl: string;
   authStatus?:
     | 'unresolved'
@@ -71,6 +74,8 @@ export function ProfileScreen(props: {
   const [recommendations, setRecommendations] =
     useState<RecommendationsResponse | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
+  const [showOrganizerStudio, setShowOrganizerStudio] = useState(false);
+  const [organizerGroups, setOrganizerGroups] = useState<GroupSummary[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -115,12 +120,19 @@ export function ProfileScreen(props: {
       props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin')
         ? apiClient.getAnalytics()
         : Promise.resolve(null),
+      props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin')
+        ? apiClient.getGroups()
+        : Promise.resolve(null),
     ]);
 
     if (thisGen !== dashboardGen.current || !props.session.authenticated) {
       return;
     }
-    const [notificationsResult, recommendationsResult, analyticsResult] = promises;
+    const [notificationsResult, recommendationsResult, analyticsResult, groupsResult] = promises;
+
+    if (groupsResult && groupsResult.status === "fulfilled" && groupsResult.value) {
+      setOrganizerGroups(groupsResult.value.groups || []);
+    }
 
     if (notificationsResult.status === 'fulfilled') {
       setNotifications(notificationsResult.value.notifications);
@@ -274,6 +286,17 @@ export function ProfileScreen(props: {
         kind: 'event',
       },
     ];
+  }
+
+  if (showOrganizerStudio) {
+    return (
+      <OrganizerDashboardScreen
+        groups={organizerGroups}
+        locale={props.locale}
+        onBack={() => setShowOrganizerStudio(false)}
+        viewerName={props.session.viewer?.fullName}
+      />
+    );
   }
 
   return (
@@ -553,6 +576,12 @@ export function ProfileScreen(props: {
             subtitle="Organizer analytics come straight from /api/analytics."
             title="Organizer snapshot"
           />
+          <Button
+            label="Open Organizer Studio"
+            onPress={() => setShowOrganizerStudio(true)}
+            variant="primary"
+          />
+
           <View style={styles.metricRow}>
             <MetricTile label="Events published" value={String(analytics.eventsPublished)} />
             <MetricTile label="Total views" value={String(analytics.totalViews)} />
