@@ -137,10 +137,14 @@ export function Pill(props: {
 export function SectionHeader(props: {
   title: string;
   subtitle?: string;
+  action?: React.ReactNode;
 }) {
   return (
     <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{props.title}</Text>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>{props.title}</Text>
+        {props.action}
+      </View>
       {props.subtitle ? <Text style={styles.sectionSubtitle}>{props.subtitle}</Text> : null}
     </View>
   );
@@ -317,6 +321,11 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     gap: 4,
+  },
+  sectionHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   sectionTitle: {
     color: theme.colors.text,

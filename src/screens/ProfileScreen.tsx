@@ -403,7 +403,7 @@ export function ProfileScreen(props: {
         />
         {statusMessage ? <InlineNotice message={statusMessage} tone="accent" /> : null}
         {dashboardError ? (
-          <InlineNotice message={dashboardError} tone="danger" title="Backend notice" />
+          <InlineNotice message={dashboardError} tone="warning" title="Backend notice" />
         ) : null}
 
         {props.session.authenticated && props.session.viewer ? (

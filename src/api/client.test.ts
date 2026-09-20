@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { apiClient, normalizeEventSummary, ApiError, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
+import { ApiClient, apiClient, normalizeEventSummary, ApiError, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
 
 jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => undefined),
@@ -752,5 +752,56 @@ describe("Phase 2 API contract hardening and error model", () => {
     expect(calledInit.method).toBe("POST");
     expect(JSON.parse(calledInit.body as string)).toEqual({ token: "token-to-revoke" });
     expect(apiClient.hasStoredAccessToken()).toBe(false);
+  });
+
+  describe("Production API Security Policy", () => {
+    const origEnv = process.env;
+
+    afterEach(() => {
+      process.env = origEnv;
+    });
+
+    it("enforces canonical origin https://samgamam.com in production", () => {
+      process.env = { ...origEnv, APP_ENV: "production" };
+      expect(apiClient.getBaseUrl()).toBe("https://samgamam.com");
+    });
+
+    it("ignores and clears previously stored development API override in production", async () => {
+      process.env = { ...origEnv, APP_ENV: "production" };
+      jest.spyOn(SecureStore, "getItemAsync").mockImplementation((async (...args: unknown[]) => {
+        const key = args[0] as string;
+        if (key === "samgamam.api_base_url") return "https://dev-override.example.com";
+        return null;
+      }) as any);
+      const deleteSpy = jest.spyOn(SecureStore, "deleteItemAsync");
+
+      const freshClient = new ApiClient();
+      const state = await freshClient.initialize();
+      expect(state.apiBaseUrl).toBe("https://samgamam.com");
+      expect(freshClient.getBaseUrl()).toBe("https://samgamam.com");
+      expect(deleteSpy).toHaveBeenCalledWith("samgamam.api_base_url");
+    });
+
+    it("disables setApiBaseUrl in production and throws error", async () => {
+      process.env = { ...origEnv, APP_ENV: "production" };
+      const freshClient = new ApiClient();
+      await expect(freshClient.setApiBaseUrl("https://attacker.example.com")).rejects.toThrow(
+        "Overriding API base URL is disabled in production."
+      );
+      expect(freshClient.getBaseUrl()).toBe("https://samgamam.com");
+    });
+
+    it("validates approved production origin strictly", () => {
+      process.env = {
+        ...origEnv,
+        APP_ENV: "production",
+        EXPO_PUBLIC_AUTH0_DOMAIN: "tenant.example.invalid",
+        EXPO_PUBLIC_AUTH0_CLIENT_ID: "client-id",
+        EXPO_PUBLIC_AUTH0_AUDIENCE: "audience",
+        EXPO_PUBLIC_API_URL: "https://api.samgamam.com",
+      };
+      const freshClient = new ApiClient();
+      expect(freshClient.getBaseUrl()).toBe("https://api.samgamam.com");
+    });
   });
 });

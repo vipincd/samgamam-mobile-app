@@ -34,6 +34,7 @@ import { parseDeepLinkUrl, type NavigationTarget } from './src/services/deep-lin
 import {
   configureForegroundNotifications,
   addNotificationResponseListener,
+  addPushTokenListener,
   checkColdStartNotificationAsync,
   registerDevicePushTokenAsync,
   unregisterDeviceOnLogoutAsync,
@@ -266,9 +267,22 @@ function AppContent() {
 
   useEffect(() => {
     if (authState.status === 'authenticated' && authState.session.viewer?.id) {
-      void registerDevicePushTokenAsync(apiClient, authState.session.viewer.id, {
-        locale: authState.session.locale ?? undefined,
+      const viewerId = authState.session.viewer.id;
+      const locale = authState.session.locale ?? undefined;
+
+      void registerDevicePushTokenAsync(apiClient, viewerId, {
+        locale,
       });
+
+      const pushSub = addPushTokenListener((_token) => {
+        void registerDevicePushTokenAsync(apiClient, viewerId, {
+          locale,
+        });
+      });
+
+      return () => {
+        pushSub.remove();
+      };
     }
   }, [authState.status, authState.session.viewer?.id, authState.session.locale]);
 

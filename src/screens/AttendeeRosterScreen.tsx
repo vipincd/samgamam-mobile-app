@@ -50,7 +50,7 @@ export function AttendeeRosterScreen(props: {
     setError(null);
 
     try {
-      const response = await apiClient.getEventAttendees(props.eventId);
+      const response = await apiClient.getOrganizerEventRoster(props.eventId);
       setAttendees(response.attendees || []);
     } catch (err) {
       setError(getErrorMessage(err));

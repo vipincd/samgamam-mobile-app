@@ -55,18 +55,32 @@ describe("Mobile Organizer Lifecycle (Phase 6)", () => {
       ],
     };
 
-    const fetchMock = jest.spyOn(global, "fetch" as any).mockResolvedValueOnce(
-      mockJsonResponse(mockOverview)
-    );
+    const mockEventsList = [
+      {
+        id: "berlin-founders-brunch",
+        title: "Berlin Founders Brunch",
+        description: "Networking brunch",
+        category: "business",
+        startsAt: "2026-10-12T10:00:00.000Z",
+        location: "Berlin Mitte",
+        groupId: "berlin-founders",
+        organizerId: "org-vipin-1",
+        status: "published" as const,
+      },
+    ];
+
+    const fetchMock = jest.spyOn(global, "fetch" as any)
+      .mockResolvedValueOnce(mockJsonResponse({ data: mockEventsList }))
+      .mockResolvedValueOnce(mockJsonResponse(mockOverview));
 
     const result = await apiClient.getOrganizerEvents();
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/analytics"),
+      expect.stringContaining("/v1/organizer/events"),
       expect.anything()
     );
     expect(result.events.length).toBe(1);
     expect(result.events[0].id).toBe("berlin-founders-brunch");
-    expect(result.overview.eventsPublished).toBe(2);
+    expect(result.overview?.eventsPublished).toBe(2);
   });
 
   it("2. retrieves real attendee roster for an organizer event", async () => {
@@ -103,7 +117,7 @@ describe("Mobile Organizer Lifecycle (Phase 6)", () => {
 
     const result = await apiClient.getEventAttendees("berlin-founders-brunch");
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/events/berlin-founders-brunch/attendees"),
+      expect.stringContaining("/v1/organizer/events/berlin-founders-brunch/roster"),
       expect.anything()
     );
     expect(result.attendees.length).toBe(3);
@@ -455,20 +469,16 @@ describe("Mobile Organizer Lifecycle (Phase 6)", () => {
     );
 
     const result = await apiClient.askCopilotForEvent(
+      "berlin-founders-brunch",
       "suggest_description",
-      "Draft a friendly reminder to bring laptops.",
-      {
-        title: "Berlin Founders Brunch",
-        location: "Berlin Mitte",
-        description: "Monthly get-together.",
-      }
+      "Draft a friendly reminder to bring laptops."
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/ai/copilot"),
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining("Berlin Founders Brunch"),
+        body: expect.stringContaining("berlin-founders-brunch"),
       })
     );
     expect(result.content).toContain("Draft Reminder");

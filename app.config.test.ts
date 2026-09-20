@@ -1,4 +1,9 @@
-import appConfig, { readOptionalAuth0Configuration, validateAppEnvironment } from './app.config';
+import appConfig, {
+  CANONICAL_PRODUCTION_API_URL,
+  readOptionalAuth0Configuration,
+  validateAppEnvironment,
+  validateProductionApiUrl,
+} from './app.config';
 
 const completeEnvironment = {
   APP_ENV: 'production',
@@ -77,9 +82,24 @@ describe('App Environment and Auth0 configuration', () => {
       expect(() =>
         validateAppEnvironment({
           ...completeEnvironment,
-          EXPO_PUBLIC_API_URL: 'http://insecure-api.samgamam.com',
+          EXPO_PUBLIC_API_URL: 'http://samgamam.com',
         }),
       ).toThrow('Production EXPO_PUBLIC_API_URL must use HTTPS.');
+    });
+
+    it('fails closed if production API URL is not an approved Samgamam host', () => {
+      expect(() =>
+        validateAppEnvironment({
+          ...completeEnvironment,
+          EXPO_PUBLIC_API_URL: 'https://evil-hacker.com',
+        }),
+      ).toThrow("not an approved Samgamam production domain");
+    });
+
+    it('fails closed if production API URL contains user credentials', () => {
+      expect(() =>
+        validateProductionApiUrl('https://admin:pass@samgamam.com'),
+      ).toThrow('embedded credentials');
     });
 
     it('defaults to canonical production API URL if omitted in production', () => {
@@ -89,7 +109,7 @@ describe('App Environment and Auth0 configuration', () => {
         EXPO_PUBLIC_AUTH0_CLIENT_ID: 'public-client-id',
         EXPO_PUBLIC_AUTH0_DOMAIN: 'tenant.example.invalid',
       });
-      expect(result.apiUrl).toBe('https://samgamam.com');
+      expect(result.apiUrl).toBe(CANONICAL_PRODUCTION_API_URL);
     });
   });
 
@@ -107,7 +127,7 @@ describe('App Environment and Auth0 configuration', () => {
     });
 
     it('omits Auth0 plugin in development when unconfigured', () => {
-      process.env = { APP_ENV: 'development' };
+      process.env = { ...originalEnvironment, APP_ENV: 'development' };
       const unconfigured = appConfig({ config: {} } as never);
       expect(unconfigured.plugins).toContain('expo-secure-store');
       expect(unconfigured.plugins).not.toContainEqual(expect.arrayContaining(['react-native-auth0']));

@@ -1,5 +1,13 @@
-import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { Platform } from "react-native";
+import * as SecureStore from "expo-secure-store";
+
+import {
+  CANONICAL_PRODUCTION_API_URL,
+  isProductionEnvironment,
+  validateAppEnvironment,
+  validateProductionApiUrl,
+} from "../auth/config";
+
 
 import type {
   AnnouncementInput,
@@ -34,6 +42,8 @@ import type {
   RsvpState,
   SearchResponse,
 } from "./types";
+
+export { isProductionEnvironment };
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_KEY = 'samgamam.access_token';
@@ -83,7 +93,7 @@ async function removeStoredValue(key: string) {
   }
 }
 
-function normalizeBaseUrl(raw?: string | null) {
+export function normalizeBaseUrl(raw?: string | null): string | null {
   if (!raw) {
     return null;
   }
@@ -94,27 +104,31 @@ function normalizeBaseUrl(raw?: string | null) {
     return null;
   }
 
+  if (isProductionEnvironment()) {
+    return validateProductionApiUrl(trimmed);
+  }
+
   let parsed: URL;
 
   try {
     parsed = new URL(trimmed);
   } catch {
-    throw new Error('Enter a valid URL including http:// or https://.');
+    throw new Error("Enter a valid URL including http:// or https://.");
   }
 
-  if (parsed.protocol === 'https:') {
+  if (parsed.protocol === "https:") {
     return parsed.origin;
   }
 
-  if (parsed.protocol !== 'http:') {
-    throw new Error('Samgamam requires HTTPS outside local development.');
+  if (parsed.protocol !== "http:") {
+    throw new Error("Samgamam requires HTTPS outside local development.");
   }
 
-  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__);
+  const isDev = typeof __DEV__ !== "undefined" && Boolean(__DEV__);
 
   if (isDev) {
-    const localHosts = new Set(['localhost', '127.0.0.1', '10.0.2.2']);
-    const octets = parsed.hostname.split('.').map(Number);
+    const localHosts = new Set(["localhost", "127.0.0.1", "10.0.2.2"]);
+    const octets = parsed.hostname.split(".").map(Number);
     const privateLanHost =
       octets.length === 4 &&
       octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
@@ -127,17 +141,30 @@ function normalizeBaseUrl(raw?: string | null) {
     }
   }
 
-  throw new Error('Samgamam requires HTTPS outside local development.');
+  throw new Error("Samgamam requires HTTPS outside local development.");
 }
 
-function resolveBaseUrl(override?: string | null) {
-  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__);
+export function resolveBaseUrl(override?: string | null): string {
+  if (isProductionEnvironment()) {
+    try {
+      const validated = validateAppEnvironment(process.env);
+      return validated.apiUrl || CANONICAL_PRODUCTION_API_URL;
+    } catch {
+      return CANONICAL_PRODUCTION_API_URL;
+    }
+  }
+
+  if (override) {
+    return normalizeBaseUrl(override) ?? override;
+  }
+
+  const isDev = typeof __DEV__ !== "undefined" && Boolean(__DEV__);
   const fallbackUrl = isDev
-    ? Platform.OS === 'android'
-      ? 'http://10.0.2.2:3000'
-      : 'http://localhost:3000'
-    : 'https://samgamam.vercel.app';
-  const configuredUrl = override ?? process.env.EXPO_PUBLIC_API_URL ?? fallbackUrl;
+    ? Platform.OS === "android"
+      ? "http://10.0.2.2:3000"
+      : "http://localhost:3000"
+    : CANONICAL_PRODUCTION_API_URL;
+  const configuredUrl = process.env.EXPO_PUBLIC_API_URL ?? fallbackUrl;
   return normalizeBaseUrl(configuredUrl) ?? fallbackUrl;
 }
 
@@ -287,7 +314,7 @@ export function getErrorMessage(error: unknown) {
   return 'Something went wrong while talking to the Samgamam backend.';
 }
 
-class ApiClient {
+export class ApiClient {
   private accessToken: string | null = null;
   private initialized = false;
   private runtimeBaseUrl: string | null = null;
@@ -301,7 +328,10 @@ class ApiClient {
     await this.setAccessToken(null);
   }
 
-  getBaseUrl() {
+  getBaseUrl(): string {
+    if (isProductionEnvironment()) {
+      return resolveBaseUrl();
+    }
     return resolveBaseUrl(this.runtimeBaseUrl);
   }
 
@@ -321,7 +351,14 @@ class ApiClient {
       ]);
 
       this.accessToken = storedAccessToken;
-      this.runtimeBaseUrl = normalizeBaseUrl(storedBaseUrl);
+      if (isProductionEnvironment()) {
+        if (storedBaseUrl) {
+          await removeStoredValue(API_BASE_URL_KEY);
+        }
+        this.runtimeBaseUrl = null;
+      } else {
+        this.runtimeBaseUrl = normalizeBaseUrl(storedBaseUrl);
+      }
       this.initialized = true;
     }
 
@@ -332,6 +369,10 @@ class ApiClient {
   }
 
   async setApiBaseUrl(value: string | null) {
+    if (isProductionEnvironment()) {
+      throw new Error("Overriding API base URL is disabled in production.");
+    }
+
     const normalized = normalizeBaseUrl(value);
 
     this.runtimeBaseUrl = normalized;
@@ -883,16 +924,32 @@ class ApiClient {
     });
   }
 
-  async getOrganizerEvents(): Promise<{ events: EventSummary[]; overview: AnalyticsOverview }> {
-    const overview = await this.request<AnalyticsOverview>("/analytics");
-    const events = (overview.eventStats || []).map((s) => s.event).filter(Boolean);
+  async getOrganizerEvents(): Promise<{ events: EventSummary[]; overview: AnalyticsOverview | null }> {
+    const response = await this.request<any>("/v1/organizer/events");
+    const events = Array.isArray(response)
+      ? response
+      : (response?.data ?? response?.events ?? []);
+    let overview: AnalyticsOverview | null = null;
+    try {
+      overview = await this.request<AnalyticsOverview>("/analytics");
+    } catch {
+      // Non-blocking analytics overview
+    }
     return { events, overview };
   }
 
-  async getEventAttendees(eventId: string): Promise<{ attendees: AttendeeItem[] }> {
-    return this.request<{ attendees: AttendeeItem[] }>(
-      `/events/${encodeURIComponent(eventId)}/attendees`
+  async getOrganizerEventRoster(eventId: string): Promise<{ attendees: AttendeeItem[] }> {
+    const response = await this.request<any>(
+      `/v1/organizer/events/${encodeURIComponent(eventId)}/roster`
     );
+    const attendees = Array.isArray(response)
+      ? response
+      : (response?.data ?? response?.attendees ?? []);
+    return { attendees };
+  }
+
+  async getEventAttendees(eventId: string): Promise<{ attendees: AttendeeItem[] }> {
+    return this.getOrganizerEventRoster(eventId);
   }
 
   async scanTicket(eventId: string, token: string): Promise<AttendanceScanResult> {
@@ -982,17 +1039,13 @@ class ApiClient {
   }
 
   async askCopilotForEvent(
+    eventId: string,
     action: CopilotAction,
-    prompt: string,
-    eventContext?: { title?: string; description?: string; location?: string }
+    prompt: string
   ): Promise<CopilotResponse> {
-    let contextualPrompt = prompt;
-    if (eventContext && (eventContext.title || eventContext.location)) {
-      contextualPrompt = `Event Context: Title "${eventContext.title || "Untitled"}", Location "${eventContext.location || "TBD"}", Description "${eventContext.description || ""}". Instructions: ${prompt}`;
-    }
     return this.request<CopilotResponse>("/ai/copilot", {
       method: "POST",
-      body: JSON.stringify({ action, prompt: contextualPrompt }),
+      body: JSON.stringify({ eventId, action, prompt }),
     });
   }
 

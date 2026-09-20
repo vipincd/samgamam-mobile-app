@@ -214,11 +214,7 @@ export function OrganizerDashboardScreen(props: {
     setCopilotLoading(true);
     setError(null);
     try {
-      const res = await apiClient.askCopilotForEvent("suggest_description", copilotPrompt.trim(), {
-        title: selectedEvent.title,
-        description: selectedEvent.description,
-        location: selectedEvent.location,
-      });
+      const res = await apiClient.askCopilotForEvent(selectedEvent.id, "suggest_description", copilotPrompt.trim());
       setCopilotResult(res.content);
     } catch (err) {
       setError(getErrorMessage(err));
