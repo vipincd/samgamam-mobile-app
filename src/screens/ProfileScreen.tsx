@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -7,8 +8,14 @@ import {
   View,
 } from 'react-native';
 
-import { apiClient, getErrorMessage } from '../api/client';
+import { apiClient, getErrorMessage, isProductionEnvironment } from '../api/client';
 import { parseDeepLinkUrl, type NavigationTarget } from "../services/deep-links";
+import {
+  checkPushPermissionAsync,
+  requestPushPermissionAsync,
+  registerDevicePushTokenAsync,
+  type PushPermissionState,
+} from '../services/notifications';
 import { OrganizerDashboardScreen } from "./OrganizerDashboardScreen";
 import type {
   AnalyticsOverview,
@@ -40,7 +47,6 @@ import {
 } from '../utils/format';
 
 export function ProfileScreen(props: {
-
   apiBaseUrl: string;
   authStatus?:
     | 'unresolved'
@@ -80,10 +86,40 @@ export function ProfileScreen(props: {
   const [configLoading, setConfigLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [markingNotificationId, setMarkingNotificationId] = useState<string | null>(null);
+  const [pushPermission, setPushPermission] = useState<PushPermissionState>('undetermined');
+  const [requestingPush, setRequestingPush] = useState(false);
+
+  const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__) && !isProductionEnvironment();
 
   useEffect(() => {
     setDraftApiBaseUrl(props.apiBaseUrl);
   }, [props.apiBaseUrl]);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' || Platform.OS === 'android') {
+      void checkPushPermissionAsync().then((state) => {
+        setPushPermission(state);
+      });
+    }
+  }, [props.isFocused, props.session.authenticated]);
+
+  async function handleRequestPushPermission() {
+    setRequestingPush(true);
+    try {
+      const nextState = await requestPushPermissionAsync();
+      setPushPermission(nextState);
+      if (nextState === 'granted' && props.session.viewer?.id) {
+        await registerDevicePushTokenAsync(apiClient, props.session.viewer.id, {
+          locale: props.locale,
+        });
+        setStatusMessage('Notifications enabled on this device.');
+      }
+    } catch (err) {
+      setDashboardError(getErrorMessage(err));
+    } finally {
+      setRequestingPush(false);
+    }
+  }
 
   async function loadDashboard(isRefresh = false) {
     if (!props.isFocused) {
@@ -197,6 +233,9 @@ export function ProfileScreen(props: {
   }
 
   async function handleSaveBaseUrl() {
+    if (!isDev) {
+      return;
+    }
     setConfigLoading(true);
     setStatusMessage(null);
 
@@ -315,122 +354,37 @@ export function ProfileScreen(props: {
     >
       <ScreenIntro
         eyebrow="Profile"
-        subtitle={`This tab now handles session restore, secure token storage, backend URL control, notifications, recommendations, and organizer stats for ${toShortName(props.session.viewer?.fullName)}.`}
-        title="Make the app usable on a real device."
+        subtitle={`This tab handles session management, notifications, recommendations, and organizer stats for ${toShortName(props.session.viewer?.fullName)}.`}
+        title="Account & Preferences"
       />
 
-      <Surface style={styles.sectionCard}>
-        <SectionHeader
-          subtitle="Set this when your phone cannot reach localhost. The saved URL persists through app restarts."
-          title="Backend connection"
-        />
-        <Field
-          helperText="Examples: http://10.0.2.2:3000 for Android emulator, http://192.168.x.x:3000 for a device on your LAN, or an HTTPS production URL."
-          label="API base URL"
-          onChangeText={setDraftApiBaseUrl}
-          placeholder="http://localhost:3000"
-          value={draftApiBaseUrl}
-        />
-        {healthMessage ? <InlineNotice message={healthMessage} tone="success" /> : null}
-        {props.connectionError ? (
-          <InlineNotice message={props.connectionError} tone="warning" title="Connection issue" />
-        ) : null}
-        <View style={styles.row}>
-          <Button
-            label={configLoading ? 'Saving...' : 'Save URL'}
-            onPress={() => {
-              void handleSaveBaseUrl();
-            }}
-            style={styles.flexButton}
-          />
-          <Button
-            label="Retry backend"
-            onPress={() => {
-              void props.onRefreshSession();
-              void loadDashboard();
-            }}
-            style={styles.flexButton}
-            variant="ghost"
-          />
-        </View>
-      </Surface>
-
-      {statusMessage ? <InlineNotice message={statusMessage} tone="accent" /> : null}
-      {dashboardError ? <InlineNotice message={dashboardError} tone="warning" title="Some data could not load" /> : null}
-
-      {props.authStatus === 'reconciliation-failed' ? (
+      {isDev ? (
         <Surface style={styles.sectionCard}>
           <SectionHeader
-            subtitle="Your saved credentials are preserved on this device, but Samgamam could not reach the server to verify your session."
-            title="Session verification paused"
+            subtitle="Set this when your phone cannot reach localhost. The saved URL persists through app restarts."
+            title="Backend connection (Dev Only)"
           />
-          <InlineNotice
-            message={props.connectionError ?? 'Unable to reach backend to verify session while offline.'}
-            tone="warning"
-            title="Verification paused"
+          <Field
+            helperText="Examples: http://10.0.2.2:3000 for Android emulator, http://192.168.x.x:3000 for a device on your LAN, or an HTTPS production URL."
+            label="API base URL"
+            onChangeText={setDraftApiBaseUrl}
+            placeholder="http://localhost:3000"
+            value={draftApiBaseUrl}
           />
+          {healthMessage ? <InlineNotice message={healthMessage} tone="success" /> : null}
+          {props.connectionError ? (
+            <InlineNotice message={props.connectionError} tone="warning" title="Connection issue" />
+          ) : null}
           <View style={styles.row}>
             <Button
-              label={authLoading ? 'Verifying...' : 'Retry verification'}
-              onPress={async () => {
-                setAuthLoading(true);
-                try {
-                  await props.onRefreshSession();
-                  await loadDashboard();
-                } finally {
-                  setAuthLoading(false);
-                }
-              }}
-              style={styles.flexButton}
-            />
-            <Button
-              label="Sign out from device"
+              label={configLoading ? 'Saving...' : 'Save URL'}
               onPress={() => {
-                void handleLogout();
+                void handleSaveBaseUrl();
               }}
               style={styles.flexButton}
-              variant="ghost"
             />
-          </View>
-        </Surface>
-      ) : !props.session.authenticated ? (
-        <Surface style={styles.sectionCard}>
-          <SectionHeader
-            subtitle="Sign in securely with Auth0 to access your gatherings, discussions, and profile."
-            title="Sign in"
-          />
-          <InlineNotice
-            message="Authentication is managed securely by Auth0. Sensitive credentials are never stored or logged on this device."
-            tone="default"
-          />
-          <Button
-            disabled={authLoading || props.authStatus === 'signingIn'}
-            label={authLoading || props.authStatus === 'signingIn' ? 'Signing in...' : 'Sign in with Auth0'}
-            onPress={() => {
-              void handleLogin();
-            }}
-          />
-        </Surface>
-      ) : (
-        <Surface style={styles.sectionCard}>
-          <SectionHeader
-            subtitle="Your access token is stored securely on-device and reused across app launches."
-            title="Account"
-          />
-          <Text style={styles.accountName}>{props.session.viewer?.fullName}</Text>
-          <Text style={styles.accountMeta}>{props.session.viewer?.email}</Text>
-          <View style={styles.quickActions}>
-            {(props.session.viewer?.roles ?? []).map((role) => (
-              <Pill key={role} label={capitalizeLabel(role)} tone="accent" />
-            ))}
-            <Pill
-              label={props.session.viewer?.emailVerified ? 'Verified' : 'Verification pending'}
-              tone={props.session.viewer?.emailVerified ? 'success' : 'warning'}
-            />
-          </View>
-          <View style={styles.row}>
             <Button
-              label="Refresh session"
+              label="Retry backend"
               onPress={() => {
                 void props.onRefreshSession();
                 void loadDashboard();
@@ -438,28 +392,100 @@ export function ProfileScreen(props: {
               style={styles.flexButton}
               variant="secondary"
             />
-            <Button
-              label={authLoading ? 'Signing out...' : 'Sign out'}
-              onPress={() => {
-                void handleLogout();
-              }}
-              style={styles.flexButton}
-              variant="ghost"
-            />
           </View>
         </Surface>
-      )}
+      ) : null}
+
+      <Surface style={styles.sectionCard}>
+        <SectionHeader
+          subtitle="Signed in sessions automatically include the Bearer token on all API calls."
+          title="Account session"
+        />
+        {statusMessage ? <InlineNotice message={statusMessage} tone="accent" /> : null}
+        {dashboardError ? (
+          <InlineNotice message={dashboardError} tone="danger" title="Backend notice" />
+        ) : null}
+
+        {props.session.authenticated && props.session.viewer ? (
+          <>
+            <Text style={styles.accountName}>{props.session.viewer.fullName}</Text>
+            <Text style={styles.accountMeta}>
+              {props.session.viewer.email} · {props.session.viewer.roles.map(capitalizeLabel).join(', ')}
+            </Text>
+            <View style={styles.quickActions}>
+              <Pill
+                label={props.session.viewer.emailVerified ? 'Email verified' : 'Email unverified'}
+                tone={props.session.viewer.emailVerified ? 'success' : 'warning'}
+              />
+              <Pill label={`Locale ${props.locale.toUpperCase()}`} tone="default" />
+              {pushPermission === 'granted' ? (
+                <Pill label="Push notifications active" tone="success" />
+              ) : pushPermission === 'denied' ? (
+                <Pill label="Notifications disabled in settings" tone="default" />
+              ) : null}
+            </View>
+
+            {pushPermission === 'undetermined' ? (
+              <Surface style={styles.notificationCard}>
+                <View style={styles.notificationHeader}>
+                  <Text style={styles.notificationTitle}>Enable Push Notifications</Text>
+                  <Pill label="Action" tone="accent" />
+                </View>
+                <Text style={styles.notificationBody}>
+                  Receive real-time updates when spots open up on waitlists and important event announcements.
+                </Text>
+                <Button
+                  disabled={requestingPush}
+                  label={requestingPush ? 'Requesting...' : 'Enable notifications'}
+                  onPress={() => {
+                    void handleRequestPushPermission();
+                  }}
+                  variant="primary"
+                />
+              </Surface>
+            ) : null}
+
+            <View style={styles.row}>
+              <Button
+                disabled={authLoading}
+                label={authLoading ? 'Signing out...' : 'Sign out'}
+                onPress={() => {
+                  void handleLogout();
+                }}
+                style={styles.flexButton}
+                variant="secondary"
+              />
+            </View>
+          </>
+        ) : (
+          <>
+            <EmptyState
+              message="Sign in to RSVP, manage communities, and receive waitlist updates."
+              title="You’re currently signed out"
+            />
+            <Button
+              disabled={authLoading}
+              label={authLoading ? 'Signing in...' : 'Sign in with Auth0'}
+              onPress={() => {
+                void handleLogin();
+              }}
+              variant="primary"
+            />
+          </>
+        )}
+      </Surface>
 
       {props.session.authenticated ? (
         <Surface style={styles.sectionCard}>
           <SectionHeader
-            subtitle={`${unreadCount} unread · synced from /api/notifications`}
-            title="Notifications"
+            action={<Pill label={`${unreadCount} unread`} tone={unreadCount > 0 ? 'accent' : 'default'} />}
+            subtitle="Real-time notifications sent to your account."
+            title="Activity feed"
           />
           {notifications.length === 0 ? (
             <EmptyState
-              message="You are all caught up."
-              title="No notifications right now"
+              message="You have no notifications yet. RSVPs and community announcements will appear here."
+              title="Inbox is clear"
             />
           ) : null}
           {notifications.map((notification) => (

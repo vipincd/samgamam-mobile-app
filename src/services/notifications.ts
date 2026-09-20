@@ -1,16 +1,36 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
-import type { apiClient } from '../api/client';
+import type { ApiClient } from '../api/client';
 import { NavigationTarget, parseNotificationData } from './deep-links';
-
-type ApiClient = typeof apiClient;
 
 const DEVICE_ID_KEY = 'samgamam_device_id';
 const LAST_TOKEN_KEY = 'samgamam_last_registered_token';
 const LAST_USER_KEY = 'samgamam_last_registered_user';
 
 export type PushPermissionState = 'granted' | 'denied' | 'undetermined';
+
+export function resolveEasProjectId(): string | undefined {
+  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_EAS_PROJECT_ID?.trim()) {
+    return process.env.EXPO_PUBLIC_EAS_PROJECT_ID.trim();
+  }
+  return undefined;
+}
+
+export async function setupAndroidNotificationChannelAsync(): Promise<void> {
+  if (Platform.OS === 'android') {
+    try {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Samgamam Updates',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#6366F1',
+      });
+    } catch {
+      // Ignore channel setup errors in non-Android or mock environments
+    }
+  }
+}
 
 export async function getOrCreateDeviceId(): Promise<string> {
   try {
@@ -59,7 +79,7 @@ export async function requestPushPermissionAsync(): Promise<PushPermissionState>
 export async function registerDevicePushTokenAsync(
   client: ApiClient,
   userId: string,
-  options?: { appVersion?: string; locale?: string; forcePrompt?: boolean }
+  options?: { appVersion?: string; locale?: string; forcePrompt?: boolean; projectId?: string }
 ): Promise<{ registered: boolean; token?: string; error?: string }> {
   // Only iOS and Android support native push registrations
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
@@ -67,6 +87,8 @@ export async function registerDevicePushTokenAsync(
   }
 
   try {
+    await setupAndroidNotificationChannelAsync();
+
     let permission = await checkPushPermissionAsync();
     if (permission === 'undetermined' && options?.forcePrompt) {
       permission = await requestPushPermissionAsync();
@@ -76,7 +98,10 @@ export async function registerDevicePushTokenAsync(
       return { registered: false, error: 'permission_not_granted' };
     }
 
-    const tokenResult = await Notifications.getExpoPushTokenAsync();
+    const resolvedProjectId = options?.projectId || resolveEasProjectId();
+    const tokenResult = await Notifications.getExpoPushTokenAsync(
+      resolvedProjectId ? { projectId: resolvedProjectId } : undefined
+    );
     const pushToken = tokenResult?.data;
 
     if (!pushToken || typeof pushToken !== 'string' || pushToken.length < 16) {
@@ -178,4 +203,21 @@ export async function checkColdStartNotificationAsync(): Promise<NavigationTarge
     // Fall through
   }
   return null;
+}
+
+export function addPushTokenListener(
+  onTokenChange: (token: string) => void
+): { remove: () => void } {
+  try {
+    const subscription = Notifications.addPushTokenListener((token) => {
+      if (token?.data) {
+        onTokenChange(token.data);
+      }
+    });
+    return {
+      remove: () => subscription.remove(),
+    };
+  } catch {
+    return { remove: () => {} };
+  }
 }
