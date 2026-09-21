@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Production dependency security gate
+        run: npm audit --audit-level=critical
+
       - name: Run Expo Doctor
         run: npx expo-doctor
 

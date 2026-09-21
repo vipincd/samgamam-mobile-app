@@ -45,5 +45,11 @@
       "<rootDir>/jest.setup.js"
     ]
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "shell-quote": "^1.10.0",
+    "brace-expansion": "^1.1.21",
+    "ws": "^7.5.11",
+    "postcss": "^8.5.10"
+  }
 }
