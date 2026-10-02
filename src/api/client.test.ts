@@ -428,6 +428,91 @@ describe('verified /api/v1 screen contracts', () => {
   });
 });
 
+describe('production-readiness personalization and concierge contracts', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('calls the grounded concierge through /api/v1/concierge', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            answer: 'I found one gathering.',
+            matchedEvents: [
+              {
+                eventId: 'event-1',
+                title: 'Family Picnic',
+                category: 'family',
+                startsAt: '2026-10-10T10:00:00.000Z',
+                location: 'Frankfurt',
+                availableSpots: 12,
+                matchReason: 'Matches "family"',
+                requiresActionConfirmation: true,
+              },
+            ],
+            suggestedPrompts: ['Show me outdoor activities this weekend'],
+            grounded: true,
+            generatedAnswer: false,
+            citations: [],
+            actionPolicy: {
+              stateChangesRequireExplicitConfirmation: true,
+              actionsExecutedByConcierge: false,
+            },
+          },
+          meta: { requestId: 'req-concierge' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const result = await apiClient.askConcierge('  family events  ', 'en');
+
+    expect(result.data.grounded).toBe(true);
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain('/api/v1/concierge?locale=en');
+    expect(calledInit.method).toBe('POST');
+    expect(JSON.parse(calledInit.body as string)).toEqual({ query: 'family events' });
+  });
+
+  it('reads and updates user-controlled personalization interests', async () => {
+    const model = {
+      explicitInterests: ['hiking'],
+      notInterestedCategories: [],
+      inferredInterests: [],
+    };
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ model, meta: { requestId: 'req-interests' } }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await expect(apiClient.getInterests()).resolves.toMatchObject({ model });
+    await apiClient.setInterestPreference('  hiking  ', 'explicit');
+    await apiClient.removeInterestPreference('  hiking  ');
+    await apiClient.resetInferredInterests();
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/interests');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({
+      action: 'set_preference',
+      category: 'hiking',
+      preferenceType: 'explicit',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body as string)).toEqual({
+      action: 'remove_preference',
+      category: 'hiking',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toEqual({
+      action: 'reset_inferred',
+    });
+  });
+});
+
 describe("Phase 2 API contract hardening and error model", () => {
   beforeEach(async () => {
     await apiClient.setAccessToken(null);
