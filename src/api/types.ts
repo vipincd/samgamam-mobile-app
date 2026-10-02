@@ -255,10 +255,10 @@ export interface ConciergeResponse {
     suggestedPrompts: string[];
     grounded: boolean;
     generatedAnswer: boolean;
-    citations: Array<{
+    citations: {
       eventId: string;
       title: string;
-    }>;
+    }[];
     actionPolicy: {
       stateChangesRequireExplicitConfirmation: boolean;
       actionsExecutedByConcierge: boolean;
