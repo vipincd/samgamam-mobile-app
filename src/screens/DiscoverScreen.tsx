@@ -374,8 +374,6 @@ export function DiscoverScreen(props: {
   };
 
   const renderEvent = (event: EventSummary) => {
-    const isGoing = event.viewerRsvpState === "going";
-    const isWaitlisted = event.viewerRsvpState === "waitlist";
     const isPending = pendingEventId === event.id;
 
     return (
@@ -709,7 +707,7 @@ export function DiscoverScreen(props: {
                       {termsAccepted ? <Check size={14} color="#FFF" /> : null}
                     </View>
                     <Text style={styles.legalText}>
-                      I agree to Samgamam's Terms of Service and acknowledge that I have read the Privacy Policy.
+                      I agree to Samgamam&apos;s Terms of Service and acknowledge that I have read the Privacy Policy.
                     </Text>
                   </Pressable>
                   <View style={styles.legalLinksRow}>
