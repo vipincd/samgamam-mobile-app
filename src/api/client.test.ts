@@ -249,12 +249,12 @@ describe('verified /api/v1 screen contracts', () => {
     );
     global.fetch = fetchMock as never;
 
-    const result = await apiClient.rsvpToEvent('event-rsvp-1', 'going');
+    const result = await apiClient.rsvpToEvent('event-rsvp-1', 'going', { termsAccepted: true });
     expect(fetchMock).toHaveBeenCalled();
     const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(calledUrl).toContain('/api/v1/events/event-rsvp-1/rsvp');
     expect(calledInit.method).toBe('POST');
-    expect(JSON.parse(calledInit.body as string)).toEqual({ state: 'going' });
+    expect(JSON.parse(calledInit.body as string)).toEqual({ state: 'going', termsAccepted: true });
     expect(result.event.viewerRsvpState).toBe('going');
     expect(result.event.attendeeCount).toBeUndefined();
   });
