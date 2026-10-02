@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 
 import { apiClient, getErrorMessage } from '../api/client';
-import type { CopilotAction, KnowledgeChunk, UserRole } from '../api/types';
+import type { ConciergeResponse, CopilotAction, KnowledgeChunk, UserRole } from '../api/types';
 import {
   Button,
   EmptyState,
@@ -29,6 +29,9 @@ export function HelpScreen(props: {
   roles: UserRole[];
   viewerName: string | null;
 }) {
+  const [conciergeQuery, setConciergeQuery] = useState('');
+  const [conciergeResult, setConciergeResult] = useState<ConciergeResponse['data'] | null>(null);
+  const [conciergeLoading, setConciergeLoading] = useState(false);
   const [helpQuery, setHelpQuery] = useState('');
   const [helpLoading, setHelpLoading] = useState(false);
   const [chunks, setChunks] = useState<KnowledgeChunk[]>([]);
@@ -39,6 +42,32 @@ export function HelpScreen(props: {
   const [error, setError] = useState<string | null>(null);
 
   const canUseCopilot = props.roles.includes('organizer') || props.roles.includes('admin');
+
+  async function handleConcierge() {
+    if (!props.authenticated) {
+      props.onRequestSignIn();
+      setError('Sign in from Profile to use the Samgamam Concierge.');
+      return;
+    }
+
+    const query = conciergeQuery.trim();
+    if (query.length < 3) {
+      setError('Enter at least 3 characters so the concierge can search for relevant gatherings.');
+      return;
+    }
+
+    setConciergeLoading(true);
+    setError(null);
+
+    try {
+      const response = await apiClient.askConcierge(query, props.locale);
+      setConciergeResult(response.data);
+    } catch (conciergeError) {
+      setError(getErrorMessage(conciergeError));
+    } finally {
+      setConciergeLoading(false);
+    }
+  }
 
   async function handleHelpSearch() {
     if (!props.authenticated) {
@@ -99,6 +128,82 @@ export function HelpScreen(props: {
       ) : null}
 
       {error ? <InlineNotice message={error} tone="warning" title="Request failed" /> : null}
+
+      <Surface style={styles.sectionCard}>
+        <SectionHeader
+          subtitle="Ask in natural language and get event suggestions grounded in Samgamam's live event catalogue."
+          title="Samgamam Concierge"
+        />
+        <InlineNotice
+          message="The concierge can suggest gatherings, but it never RSVPs, buys tickets, or changes your account without an explicit action from you."
+          tone="accent"
+        />
+        <Field
+          editable={props.authenticated}
+          label="What would you like to do?"
+          multiline
+          onChangeText={setConciergeQuery}
+          placeholder="Example: Find a family-friendly outdoor event near me this weekend."
+          style={styles.multilineInput}
+          textAlignVertical="top"
+          value={conciergeQuery}
+        />
+        <View style={styles.row}>
+          <Button
+            disabled={!props.authenticated || conciergeQuery.trim().length < 3 || conciergeLoading}
+            label={conciergeLoading ? 'Searching...' : 'Ask concierge'}
+            onPress={() => {
+              void handleConcierge();
+            }}
+            style={styles.flexButton}
+          />
+          {!props.authenticated ? (
+            <Button
+              label="Go to Profile"
+              onPress={props.onRequestSignIn}
+              style={styles.flexButton}
+              variant="ghost"
+            />
+          ) : null}
+        </View>
+        {conciergeResult ? (
+          <Surface style={styles.resultCard}>
+            <View style={styles.chunkHeader}>
+              <Text style={styles.resultLabel}>Concierge answer</Text>
+              <Pill
+                label={conciergeResult.grounded ? 'Grounded' : 'Limited data'}
+                tone={conciergeResult.grounded ? 'success' : 'warning'}
+              />
+            </View>
+            <Text style={styles.resultText}>{conciergeResult.answer}</Text>
+            {conciergeResult.matchedEvents.map((event) => (
+              <Surface key={event.eventId} style={styles.chunkCard}>
+                <View style={styles.chunkHeader}>
+                  <Text style={styles.chunkTitle}>{event.title}</Text>
+                  <Pill label={capitalizeLabel(event.category)} tone="accent" />
+                </View>
+                <Text style={styles.chunkBody}>
+                  {event.location} · {event.availableSpots === null ? 'Open capacity' : `${event.availableSpots} spots available`}
+                </Text>
+                <Text style={styles.resultMeta}>{event.matchReason}</Text>
+              </Surface>
+            ))}
+            {conciergeResult.suggestedPrompts.length > 0 ? (
+              <View style={styles.promptList}>
+                {conciergeResult.suggestedPrompts.slice(0, 3).map((prompt) => (
+                  <Button
+                    compact
+                    key={prompt}
+                    label={prompt}
+                    onPress={() => setConciergeQuery(prompt)}
+                    variant="ghost"
+                  />
+                ))}
+              </View>
+            ) : null}
+          </Surface>
+        ) : null}
+      </Surface>
 
       <Surface style={styles.sectionCard}>
         <SectionHeader
@@ -268,5 +373,8 @@ const styles = StyleSheet.create({
     color: theme.colors.muted,
     fontSize: 12,
     lineHeight: 18,
+  },
+  promptList: {
+    gap: 8,
   },
 });
