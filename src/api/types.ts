@@ -31,6 +31,7 @@ export interface EventSummary {
   remainingCapacity?: number | null;
   availability?: 'available' | 'waitlist' | 'full';
   status?: string;
+  requiresRiskAcknowledgement?: boolean;
   cancellationReason?: string;
   ticketPriceCents: number;
   currency: string;
