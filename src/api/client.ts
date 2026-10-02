@@ -24,6 +24,9 @@ import type {
   AuthSessionResponse,
   CopilotAction,
   CopilotResponse,
+  ConciergeResponse,
+  InterestModelResponse,
+  InterestPreferenceType,
   DeviceRegistrationPayload,
   DiscussionListResponse,
   DiscussionPost,
@@ -906,6 +909,41 @@ export class ApiClient {
     );
   }
 
+  async getInterests(): Promise<InterestModelResponse> {
+    return this.request<InterestModelResponse>('/interests');
+  }
+
+  async setInterestPreference(
+    category: string,
+    preferenceType: InterestPreferenceType,
+  ): Promise<InterestModelResponse> {
+    return this.request<InterestModelResponse>('/interests', {
+      body: JSON.stringify({
+        action: 'set_preference',
+        category: category.trim(),
+        preferenceType,
+      }),
+      method: 'POST',
+    });
+  }
+
+  async removeInterestPreference(category: string): Promise<InterestModelResponse> {
+    return this.request<InterestModelResponse>('/interests', {
+      body: JSON.stringify({
+        action: 'remove_preference',
+        category: category.trim(),
+      }),
+      method: 'POST',
+    });
+  }
+
+  async resetInferredInterests(): Promise<InterestModelResponse> {
+    return this.request<InterestModelResponse>('/interests', {
+      body: JSON.stringify({ action: 'reset_inferred' }),
+      method: 'POST',
+    });
+  }
+
   async getAnalytics() {
     return this.request<AnalyticsOverview>('/analytics');
   }
@@ -922,6 +960,16 @@ export class ApiClient {
       body: JSON.stringify({ action, prompt }),
       method: 'POST',
     });
+  }
+
+  async askConcierge(query: string, locale?: string): Promise<ConciergeResponse> {
+    return this.request<ConciergeResponse>(
+      `/v1/concierge${buildQuery({ locale })}`,
+      {
+        body: JSON.stringify({ query: query.trim() }),
+        method: 'POST',
+      },
+    );
   }
 
   async getOrganizerEvents(): Promise<{ events: EventSummary[]; overview: AnalyticsOverview | null }> {
