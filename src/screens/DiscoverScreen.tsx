@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Linking,
   Modal,
   Pressable,
   RefreshControl,
@@ -29,6 +30,7 @@ import {
 import { apiClient, ApiError, getErrorMessage } from "../api/client";
 import type { EventSummary, RecommendationsResponse } from "../api/types";
 import { brand } from "../brand";
+import { buildLegalDocumentUrl, CURRENT_RISK_ACKNOWLEDGEMENT_STATEMENT } from "../legal";
 import { DiscoveryEventCard, EventSkeleton } from "../components/DiscoveryEventCard";
 import { within } from "../startup/within";
 import { formatCurrency, formatEventDate } from "../utils/format";
@@ -59,6 +61,8 @@ export function DiscoverScreen(props: {
 
   // Selected event modal
   const [selectedEvent, setSelectedEvent] = useState<EventSummary | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [riskAcknowledged, setRiskAcknowledged] = useState(false);
 
   useEffect(() => {
     if (!targetEventId) return;
@@ -69,6 +73,8 @@ export function DiscoverScreen(props: {
         setModalLoading(true);
         const detailed = await apiClient.getEvent(id, locale);
         if (!cancelled) {
+          setTermsAccepted(false);
+          setRiskAcknowledged(false);
           setSelectedEvent(detailed.event);
         }
       } catch (err) {
@@ -191,6 +197,8 @@ export function DiscoverScreen(props: {
   }, [authenticated, isFocused, locale]);
 
   async function openEventDetail(eventSummary: EventSummary) {
+    setTermsAccepted(false);
+    setRiskAcknowledged(false);
     setSelectedEvent(eventSummary);
     setModalLoading(true);
     setMessage(null);
@@ -210,11 +218,22 @@ export function DiscoverScreen(props: {
       onRequestSignIn();
       return;
     }
+    if (!termsAccepted) {
+      setMessage("Please agree to the Terms of Service and acknowledge the Privacy Policy before registering.");
+      return;
+    }
+    if (event.requiresRiskAcknowledgement && !riskAcknowledged) {
+      setMessage("Please acknowledge the physical and safety risks before registering for this event.");
+      return;
+    }
     setPendingEventId(event.id);
     setActionState("submitting");
     setMessage(null);
     try {
-      const response = await apiClient.rsvpToEvent(event.id);
+      const response = await apiClient.rsvpToEvent(event.id, 'going', {
+        termsAccepted: true,
+        riskAcknowledged: event.requiresRiskAcknowledgement ? true : undefined,
+      });
       setEvents((current) =>
         current.map((item) => (item.id === response.event.id ? response.event : item))
       );
@@ -231,6 +250,8 @@ export function DiscoverScreen(props: {
             }
           : current
       );
+      setTermsAccepted(false);
+      setRiskAcknowledged(false);
       if (response.data?.state === "going" || response.event.viewerRsvpState === "going") {
         setMessage("Your place is confirmed. You're going!");
       } else {
@@ -246,6 +267,10 @@ export function DiscoverScreen(props: {
           setMessage("This event has been cancelled. Registrations are closed.");
         } else if (e.code === "event_past") {
           setMessage("This event has already taken place. Registration is closed.");
+        } else if (e.code === "terms_acceptance_required") {
+          setMessage("Please agree to the Terms of Service and acknowledge the Privacy Policy before registering.");
+        } else if (e.code === "risk_acknowledgement_required") {
+          setMessage("Please acknowledge the physical and safety risks before registering for this event.");
         } else if (e.isAuthError) {
           setMessage("Please sign in to join this gathering.");
         } else if (e.isNetworkError) {
@@ -360,10 +385,10 @@ export function DiscoverScreen(props: {
         actionLabel={actionLabel(event)}
         disabled={isPending}
         onPress={() => {
-          if (isGoing || isWaitlisted) {
-            void openEventDetail(event);
+          if (!authenticated) {
+            onRequestSignIn();
           } else {
-            void handleRsvp(event);
+            void openEventDetail(event);
           }
         }}
         onPressCard={() => {
@@ -668,22 +693,94 @@ export function DiscoverScreen(props: {
                 </View>
               ) : null}
 
+              {/* Registration legal acknowledgements */}
+              {authenticated && selectedEvent.viewerRsvpState !== "going" && selectedEvent.viewerRsvpState !== "waitlist" ? (
+                <View style={styles.legalBox}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: termsAccepted }}
+                    onPress={() => {
+                      setTermsAccepted((current) => !current);
+                      setMessage(null);
+                    }}
+                    style={styles.legalRow}
+                  >
+                    <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
+                      {termsAccepted ? <Check size={14} color="#FFF" /> : null}
+                    </View>
+                    <Text style={styles.legalText}>
+                      I agree to Samgamam's Terms of Service and acknowledge that I have read the Privacy Policy.
+                    </Text>
+                  </Pressable>
+                  <View style={styles.legalLinksRow}>
+                    <Pressable
+                      accessibilityRole="link"
+                      onPress={() => {
+                        void Linking.openURL(buildLegalDocumentUrl(apiClient.getBaseUrl(), locale, 'terms'));
+                      }}
+                    >
+                      <Text style={styles.legalLink}>Terms of Service</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="link"
+                      onPress={() => {
+                        void Linking.openURL(buildLegalDocumentUrl(apiClient.getBaseUrl(), locale, 'privacy'));
+                      }}
+                    >
+                      <Text style={styles.legalLink}>Privacy Policy</Text>
+                    </Pressable>
+                  </View>
+
+                  {selectedEvent.requiresRiskAcknowledgement ? (
+                    <Pressable
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: riskAcknowledged }}
+                      onPress={() => {
+                        setRiskAcknowledged((current) => !current);
+                        setMessage(null);
+                      }}
+                      style={styles.riskRow}
+                    >
+                      <View style={[styles.checkbox, riskAcknowledged && styles.checkboxChecked]}>
+                        {riskAcknowledged ? <Check size={14} color="#FFF" /> : null}
+                      </View>
+                      <View style={styles.riskCopy}>
+                        <Text style={styles.riskTitle}>Physical & Safety Risk Acknowledgement</Text>
+                        <Text style={styles.legalText}>{CURRENT_RISK_ACKNOWLEDGEMENT_STATEMENT}</Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+
               {/* Action Button for non-going & non-waitlisted attendees */}
               {selectedEvent.viewerRsvpState !== "going" && selectedEvent.viewerRsvpState !== "waitlist" ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={actionLabel(selectedEvent)}
                   accessibilityState={{
-                    disabled: pendingEventId === selectedEvent.id || selectedEvent.status === "cancelled",
+                    disabled:
+                      pendingEventId === selectedEvent.id ||
+                      selectedEvent.status === "cancelled" ||
+                      (authenticated && !termsAccepted) ||
+                      (authenticated && Boolean(selectedEvent.requiresRiskAcknowledgement) && !riskAcknowledged),
                   }}
-                  disabled={pendingEventId === selectedEvent.id || selectedEvent.status === "cancelled"}
+                  disabled={
+                    pendingEventId === selectedEvent.id ||
+                    selectedEvent.status === "cancelled" ||
+                    (authenticated && !termsAccepted) ||
+                    (authenticated && Boolean(selectedEvent.requiresRiskAcknowledgement) && !riskAcknowledged)
+                  }
                   onPress={() => {
                     void handleRsvp(selectedEvent);
                   }}
                   style={({ pressed }) => [
                     styles.modalActionButton,
                     pressed && { opacity: 0.8 },
-                    (pendingEventId === selectedEvent.id || selectedEvent.status === "cancelled") && { opacity: 0.65 },
+                    (pendingEventId === selectedEvent.id ||
+                      selectedEvent.status === "cancelled" ||
+                      (authenticated && !termsAccepted) ||
+                      (authenticated && Boolean(selectedEvent.requiresRiskAcknowledgement) && !riskAcknowledged)) && { opacity: 0.65 },
                   ]}
                 >
                   <Text style={styles.modalActionText}>{actionLabel(selectedEvent)}</Text>
@@ -758,6 +855,17 @@ const styles = StyleSheet.create({
   modalTagRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   tagPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: brand.mutedSurface },
   tagPillText: { fontFamily: brand.fonts.medium, fontSize: 12, color: brand.muted },
+
+  legalBox: { padding: 14, borderRadius: 12, backgroundColor: brand.surface, borderWidth: 1, borderColor: brand.border, gap: 12 },
+  legalRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  legalLinksRow: { flexDirection: "row", flexWrap: "wrap", gap: 18, paddingLeft: 32 },
+  legalLink: { fontFamily: brand.fonts.bold, fontSize: 12, color: brand.primaryStrong, textDecorationLine: "underline" },
+  legalText: { flex: 1, fontFamily: brand.fonts.body, fontSize: 12, lineHeight: 18, color: brand.muted },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: brand.border, alignItems: "center", justifyContent: "center", backgroundColor: brand.surface },
+  checkboxChecked: { backgroundColor: brand.primaryStrong, borderColor: brand.primaryStrong },
+  riskRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "rgba(201,110,78,0.08)", borderWidth: 1, borderColor: "rgba(201,110,78,0.2)" },
+  riskCopy: { flex: 1, gap: 4 },
+  riskTitle: { fontFamily: brand.fonts.bold, fontSize: 12, color: brand.accentStrong },
 
   // Notice inside modal
   modalNoticeBox: { padding: 12, borderRadius: 10, backgroundColor: brand.primarySoft, borderWidth: 1, borderColor: brand.primary },
