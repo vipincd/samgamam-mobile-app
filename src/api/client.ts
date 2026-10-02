@@ -708,12 +708,25 @@ export class ApiClient {
   async rsvpToEvent(
     eventId: string,
     state: RsvpState = 'going',
+    legal?: {
+      termsAccepted?: boolean;
+      riskAcknowledged?: boolean;
+    },
   ): Promise<RsvpResponse> {
+    const payload =
+      state === 'cancelled'
+        ? { state }
+        : {
+            state,
+            termsAccepted: Boolean(legal?.termsAccepted),
+            ...(legal?.riskAcknowledged ? { riskAcknowledged: true } : {}),
+          };
+
     const response = await this.request<{
       data: { event: EventSummary; state: RsvpState };
       meta: ApiV1Meta;
     }>(`/v1/events/${encodeURIComponent(eventId)}/rsvp`, {
-      body: JSON.stringify({ state }),
+      body: JSON.stringify(payload),
       method: 'POST',
     });
 
