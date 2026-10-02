@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - "feature/**"
   pull_request:
 
 jobs:
@@ -27,8 +28,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Production dependency security gate
-        run: npm audit --audit-level=critical
+      - name: Mobile dependency security gate (high+)
+        run: npm run security:audit
 
       - name: Run Expo Doctor
         run: npx expo-doctor

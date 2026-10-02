@@ -25,6 +25,7 @@ import type {
   NotificationItem,
   RecommendationItem,
   RecommendationsResponse,
+  UserInterestModel,
 } from '../api/types';
 import { EventCard } from '../components/EventCard';
 import {
@@ -79,6 +80,9 @@ export function ProfileScreen(props: {
   const [unreadCount, setUnreadCount] = useState(0);
   const [recommendations, setRecommendations] =
     useState<RecommendationsResponse | null>(null);
+  const [interestModel, setInterestModel] = useState<UserInterestModel | null>(null);
+  const [interestDraft, setInterestDraft] = useState('');
+  const [interestSaving, setInterestSaving] = useState(false);
   const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
   const [showOrganizerStudio, setShowOrganizerStudio] = useState(false);
   const [organizerGroups, setOrganizerGroups] = useState<GroupSummary[]>([]);
@@ -145,6 +149,7 @@ export function ProfileScreen(props: {
       setNotifications([]);
       setUnreadCount(0);
       setRecommendations(null);
+      setInterestModel(null);
       setAnalytics(null);
       setRefreshing(false);
       return;
@@ -153,6 +158,7 @@ export function ProfileScreen(props: {
     const promises = await Promise.allSettled([
       apiClient.getNotifications(),
       apiClient.getRecommendations(3),
+      apiClient.getInterests(),
       props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin')
         ? apiClient.getAnalytics()
         : Promise.resolve(null),
@@ -164,7 +170,7 @@ export function ProfileScreen(props: {
     if (thisGen !== dashboardGen.current || !props.session.authenticated) {
       return;
     }
-    const [notificationsResult, recommendationsResult, analyticsResult, groupsResult] = promises;
+    const [notificationsResult, recommendationsResult, interestsResult, analyticsResult, groupsResult] = promises;
 
     if (groupsResult && groupsResult.status === "fulfilled" && groupsResult.value) {
       setOrganizerGroups(groupsResult.value.groups || []);
@@ -181,6 +187,12 @@ export function ProfileScreen(props: {
       setRecommendations(recommendationsResult.value);
     } else {
       setDashboardError((currentValue) => currentValue ?? getErrorMessage(recommendationsResult.reason));
+    }
+
+    if (interestsResult.status === 'fulfilled') {
+      setInterestModel(interestsResult.value.model);
+    } else {
+      setDashboardError((currentValue) => currentValue ?? getErrorMessage(interestsResult.reason));
     }
 
     if (analyticsResult.status === 'fulfilled' && analyticsResult.value) {
@@ -223,6 +235,7 @@ export function ProfileScreen(props: {
       setNotifications([]);
       setUnreadCount(0);
       setRecommendations(null);
+      setInterestModel(null);
       setAnalytics(null);
       setStatusMessage('Signed out from this device.');
     } catch (error) {
@@ -248,6 +261,59 @@ export function ProfileScreen(props: {
       setStatusMessage(getErrorMessage(error));
     } finally {
       setConfigLoading(false);
+    }
+  }
+
+  async function handleInterestPreference(preferenceType: 'explicit' | 'not_interested') {
+    const category = interestDraft.trim();
+    if (!category) {
+      setDashboardError('Enter an interest or category first.');
+      return;
+    }
+
+    setInterestSaving(true);
+    setDashboardError(null);
+    try {
+      const response = await apiClient.setInterestPreference(category, preferenceType);
+      setInterestModel(response.model);
+      setInterestDraft('');
+      setStatusMessage(
+        preferenceType === 'explicit'
+          ? `Added "${category}" to your interests.`
+          : `Samgamam will avoid recommending "${category}" where possible.`,
+      );
+    } catch (error) {
+      setDashboardError(getErrorMessage(error));
+    } finally {
+      setInterestSaving(false);
+    }
+  }
+
+  async function handleRemoveInterestPreference(category: string) {
+    setInterestSaving(true);
+    setDashboardError(null);
+    try {
+      const response = await apiClient.removeInterestPreference(category);
+      setInterestModel(response.model);
+      setStatusMessage(`Removed preference for "${category}".`);
+    } catch (error) {
+      setDashboardError(getErrorMessage(error));
+    } finally {
+      setInterestSaving(false);
+    }
+  }
+
+  async function handleResetInferredInterests() {
+    setInterestSaving(true);
+    setDashboardError(null);
+    try {
+      const response = await apiClient.resetInferredInterests();
+      setInterestModel(response.model);
+      setStatusMessage('Inferred interests were reset. Explicit preferences were kept.');
+    } catch (error) {
+      setDashboardError(getErrorMessage(error));
+    } finally {
+      setInterestSaving(false);
     }
   }
 
@@ -540,6 +606,116 @@ export function ProfileScreen(props: {
       {props.session.authenticated ? (
         <Surface style={styles.sectionCard}>
           <SectionHeader
+            subtitle="You control what Samgamam may use for personalization. Explicit choices are separate from inferred activity signals."
+            title="Interests & personalization"
+          />
+          <Field
+            label="Interest or category"
+            onChangeText={setInterestDraft}
+            placeholder="Example: hiking, alumni, technology"
+            value={interestDraft}
+          />
+          <View style={styles.row}>
+            <Button
+              disabled={!interestDraft.trim() || interestSaving}
+              label={interestSaving ? 'Saving...' : 'Add interest'}
+              onPress={() => {
+                void handleInterestPreference('explicit');
+              }}
+              style={styles.flexButton}
+            />
+            <Button
+              disabled={!interestDraft.trim() || interestSaving}
+              label="Not interested"
+              onPress={() => {
+                void handleInterestPreference('not_interested');
+              }}
+              style={styles.flexButton}
+              variant="secondary"
+            />
+          </View>
+
+          <View style={styles.preferenceBlock}>
+            <Text style={styles.preferenceTitle}>Your interests</Text>
+            {interestModel?.explicitInterests.length ? (
+              interestModel.explicitInterests.map((category) => (
+                <View key={`explicit-${category}`} style={styles.preferenceRow}>
+                  <Pill label={category} tone="success" />
+                  <Button
+                    compact
+                    disabled={interestSaving}
+                    label="Remove"
+                    onPress={() => {
+                      void handleRemoveInterestPreference(category);
+                    }}
+                    variant="ghost"
+                  />
+                </View>
+              ))
+            ) : (
+              <Text style={styles.preferenceMeta}>No explicit interests saved yet.</Text>
+            )}
+          </View>
+
+          <View style={styles.preferenceBlock}>
+            <Text style={styles.preferenceTitle}>Avoid in recommendations</Text>
+            {interestModel?.notInterestedCategories.length ? (
+              interestModel.notInterestedCategories.map((category) => (
+                <View key={`negative-${category}`} style={styles.preferenceRow}>
+                  <Pill label={category} tone="warning" />
+                  <Button
+                    compact
+                    disabled={interestSaving}
+                    label="Remove"
+                    onPress={() => {
+                      void handleRemoveInterestPreference(category);
+                    }}
+                    variant="ghost"
+                  />
+                </View>
+              ))
+            ) : (
+              <Text style={styles.preferenceMeta}>No categories are excluded.</Text>
+            )}
+          </View>
+
+          <View style={styles.preferenceBlock}>
+            <View style={styles.preferenceHeader}>
+              <View style={styles.preferenceHeaderCopy}>
+                <Text style={styles.preferenceTitle}>Inferred from activity</Text>
+                <Text style={styles.preferenceMeta}>
+                  These signals help ranking but are not treated as facts about you.
+                </Text>
+              </View>
+              <Button
+                compact
+                disabled={interestSaving || !interestModel?.inferredInterests.length}
+                label="Reset inferred"
+                onPress={() => {
+                  void handleResetInferredInterests();
+                }}
+                variant="ghost"
+              />
+            </View>
+            {interestModel?.inferredInterests.length ? (
+              interestModel.inferredInterests.slice(0, 8).map((interest) => (
+                <View key={`inferred-${interest.category}`} style={styles.preferenceRow}>
+                  <Pill label={interest.category} tone="default" />
+                  <Text style={styles.preferenceMeta}>
+                    {Math.round(interest.confidence * 100)}% confidence
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.preferenceMeta}>No inferred interests are currently stored.</Text>
+            )}
+          </View>
+        </Surface>
+      ) : null}
+
+      {props.session.authenticated ? (
+        <Surface style={styles.sectionCard}>
+          <SectionHeader
             subtitle="These sections are pulled from /api/recommendations."
             title="Personalized picks"
           />
@@ -686,6 +862,36 @@ const styles = StyleSheet.create({
     color: theme.colors.muted,
     fontSize: 12,
     fontWeight: '600',
+  },
+  preferenceBlock: {
+    gap: 8,
+  },
+  preferenceHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  preferenceHeaderCopy: {
+    flex: 1,
+    gap: 3,
+    marginRight: 12,
+  },
+  preferenceRow: {
+    alignItems: 'center',
+    columnGap: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  preferenceTitle: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  preferenceMeta: {
+    color: theme.colors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 18,
   },
   recommendationSection: {
     gap: 12,

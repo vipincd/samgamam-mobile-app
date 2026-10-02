@@ -31,6 +31,7 @@ export interface EventSummary {
   remainingCapacity?: number | null;
   availability?: 'available' | 'waitlist' | 'full';
   status?: string;
+  requiresRiskAcknowledgement?: boolean;
   cancellationReason?: string;
   ticketPriceCents: number;
   currency: string;
@@ -212,6 +213,58 @@ export interface CopilotResponse {
   content: string;
   logId: string;
   requiresHumanReview: boolean;
+}
+
+export interface InferredInterest {
+  category: string;
+  confidence: number;
+  evidenceCategory: string;
+  lastSignalAt: string;
+}
+
+export interface UserInterestModel {
+  explicitInterests: string[];
+  notInterestedCategories: string[];
+  inferredInterests: InferredInterest[];
+}
+
+export interface InterestModelResponse {
+  model: UserInterestModel;
+  meta?: {
+    requestId?: string;
+  };
+}
+
+export type InterestPreferenceType = 'explicit' | 'not_interested' | 'opt_out';
+
+export interface ConciergeEventMatch {
+  eventId: string;
+  title: string;
+  category: string;
+  startsAt: string;
+  location: string;
+  availableSpots: number | null;
+  matchReason: string;
+  requiresActionConfirmation: boolean;
+}
+
+export interface ConciergeResponse {
+  data: {
+    answer: string;
+    matchedEvents: ConciergeEventMatch[];
+    suggestedPrompts: string[];
+    grounded: boolean;
+    generatedAnswer: boolean;
+    citations: {
+      eventId: string;
+      title: string;
+    }[];
+    actionPolicy: {
+      stateChangesRequireExplicitConfirmation: boolean;
+      actionsExecutedByConcierge: boolean;
+    };
+  };
+  meta: ApiV1Meta;
 }
 
 export interface RsvpResponse {
