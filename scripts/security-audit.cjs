@@ -3,12 +3,25 @@ const {spawnSync} = require("node:child_process");
 const EXCEPTION_EXPIRY = new Date("2026-11-15T00:00:00Z");
 const ALLOWED_HIGH_GHSAS = new Map([
   [
-    "GHSA-5p2g-fcmc-qvqq",
-    "image-size JXL/HEIF infinite-loop DoS; no patched npm release exists as of 2026-10-02",
+    "GHSA-5P2G-FCMC-QVQQ",
+    {
+      packageName: "image-size",
+      reason: "JXL/HEIF infinite-loop DoS; no patched npm release exists as of 2026-10-02",
+    },
   ],
   [
-    "GHSA-w3rx-r6r6-pgpr",
-    "image-size ICNS infinite-loop DoS; advertised 2.0.3 patch is not published as of 2026-10-02",
+    "GHSA-W3RX-R6R6-PGPR",
+    {
+      packageName: "image-size",
+      reason: "ICNS infinite-loop DoS; advertised 2.0.3 patch is not published as of 2026-10-02",
+    },
+  ],
+  [
+    "GHSA-86W9-CPQP-85RV",
+    {
+      packageName: "node-forge",
+      reason: "RSA verifier issue in Expo build/certificate tooling; no patched node-forge release exists as of 2026-10-02 and Samgamam runtime code does not import this tooling",
+    },
   ],
 ]);
 
@@ -67,11 +80,8 @@ const rejected = [];
 const accepted = [];
 
 for (const advisory of highOrCritical) {
-  if (
-    advisory.packageName === "image-size" &&
-    advisory.ghsa &&
-    ALLOWED_HIGH_GHSAS.has(advisory.ghsa)
-  ) {
+  const exception = advisory.ghsa ? ALLOWED_HIGH_GHSAS.get(advisory.ghsa) : null;
+  if (exception && exception.packageName === advisory.packageName) {
     accepted.push(advisory);
     continue;
   }
@@ -93,7 +103,7 @@ const uniqueAccepted = new Map(
 );
 for (const [ghsa, advisory] of uniqueAccepted) {
   console.warn(
-    `Accepted temporary mobile build-tool exception: ${ghsa} (${advisory.packageName}) — ${ALLOWED_HIGH_GHSAS.get(ghsa)}. Expires ${EXCEPTION_EXPIRY.toISOString()}.`,
+    `Accepted temporary mobile build-tool exception: ${ghsa} (${advisory.packageName}) — ${ALLOWED_HIGH_GHSAS.get(ghsa)?.reason}. Expires ${EXCEPTION_EXPIRY.toISOString()}.`,
   );
 }
 
