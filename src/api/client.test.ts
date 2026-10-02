@@ -484,7 +484,7 @@ describe('production-readiness personalization and concierge contracts', () => {
       notInterestedCategories: [],
       inferredInterests: [],
     };
-    const fetchMock = jest.fn().mockResolvedValue(
+    const fetchMock = jest.fn().mockImplementation(async () =>
       new Response(
         JSON.stringify({ model, meta: { requestId: 'req-interests' } }),
         { headers: { 'content-type': 'application/json' }, status: 200 },
