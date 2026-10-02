@@ -62,13 +62,13 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
     );
     global.fetch = fetchMock as never;
 
-    const response: RsvpResponse = await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+    const response: RsvpResponse = await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(calledUrl).toContain("/api/v1/events/event-lifecycle-1/rsvp");
     expect(calledInit.method).toBe("POST");
-    expect(JSON.parse(calledInit.body as string)).toEqual({ state: "going" });
+    expect(JSON.parse(calledInit.body as string)).toEqual({ state: "going", termsAccepted: true });
 
     expect(response.data?.state).toBe("going");
     expect(response.event.viewerRsvpState).toBe("going");
@@ -100,7 +100,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
     );
     global.fetch = fetchMock as never;
 
-    const response: RsvpResponse = await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+    const response: RsvpResponse = await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
 
     expect(response.data?.state).toBe("waitlist");
     expect(response.event.viewerRsvpState).toBe("waitlist");
@@ -188,7 +188,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
 
     let caught: ApiError | null = null;
     try {
-      await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+      await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
     } catch (err) {
       caught = err as ApiError;
     }
@@ -217,7 +217,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
 
     let caught: ApiError | null = null;
     try {
-      await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+      await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
     } catch (err) {
       caught = err as ApiError;
     }
@@ -249,7 +249,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
 
     let caught: ApiError | null = null;
     try {
-      await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+      await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
     } catch (err) {
       caught = err as ApiError;
     }
@@ -321,7 +321,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
 
     let caught: ApiError | null = null;
     try {
-      await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+      await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
     } catch (err) {
       caught = err as ApiError;
     }
@@ -349,7 +349,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
       });
       global.fetch = fetchMock as never;
 
-      const promise = apiClient.rsvpToEvent("event-lifecycle-1", "going");
+      const promise = apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
       await Promise.resolve();
       await Promise.resolve();
       jest.advanceTimersByTime(16_000);
@@ -441,11 +441,11 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
     global.fetch = fetchMock as never;
 
     // Simulate in-flight protection: trigger first mutation
-    const inFlightPromise = apiClient.rsvpToEvent("event-lifecycle-1", "going");
+    const inFlightPromise = apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
 
     // Attempt concurrent mutation while first is still pending
     // Both succeed at API level idempotently without throwing
-    const secondPromise = apiClient.rsvpToEvent("event-lifecycle-1", "going");
+    const secondPromise = apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
 
     const [first, second] = await Promise.all([inFlightPromise, secondPromise]);
     expect(first.data?.state).toBe("going");
@@ -477,7 +477,7 @@ describe("Phase 3 Mobile Attendee Event Lifecycle Tests", () => {
     );
     global.fetch = fetchMock as never;
 
-    const result = await apiClient.rsvpToEvent("event-lifecycle-1", "going");
+    const result = await apiClient.rsvpToEvent("event-lifecycle-1", "going", { termsAccepted: true });
     // Ensure event is fully normalized with state stamped from response.data.state
     expect(result.event.viewerRsvpState).toBe("waitlist");
     expect(result.event.attendeeCount).toBe(10);
