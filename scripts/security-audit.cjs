@@ -3,24 +3,10 @@ const {spawnSync} = require("node:child_process");
 const EXCEPTION_EXPIRY = new Date("2026-11-15T00:00:00Z");
 const ALLOWED_HIGH_GHSAS = new Map([
   [
-    "GHSA-5P2G-FCMC-QVQQ",
+    "GHSA-MRHX-C7XC-M3W5",
     {
-      packageName: "image-size",
-      reason: "JXL/HEIF infinite-loop DoS; no patched npm release exists as of 2026-10-02",
-    },
-  ],
-  [
-    "GHSA-W3RX-R6R6-PGPR",
-    {
-      packageName: "image-size",
-      reason: "ICNS infinite-loop DoS; advertised 2.0.3 patch is not published as of 2026-10-02",
-    },
-  ],
-  [
-    "GHSA-86W9-CPQP-85RV",
-    {
-      packageName: "node-forge",
-      reason: "RSA verifier issue in Expo build/certificate tooling; no patched node-forge release exists as of 2026-10-02 and Samgamam runtime code does not import this tooling",
+      packageName: "zod",
+      reason: "memory exhaustion on oversized input; zod 3 is pinned privately by Expo SDK 58's @expo/cli (build tooling only, validates trusted project config); the fix requires zod 4, which the CLI does not support",
     },
   ],
 ]);

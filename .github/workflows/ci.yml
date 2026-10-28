@@ -42,3 +42,6 @@ jobs:
 
       - name: Run unit tests
         run: npm test
+
+      - name: Export Android and iOS release bundles
+        run: npx expo export --platform android --platform ios

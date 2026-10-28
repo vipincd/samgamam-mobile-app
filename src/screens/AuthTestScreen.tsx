@@ -127,6 +127,7 @@ function NativeAuthTestScreen() {
   }, [client]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void reloadSession();
   }, [reloadSession]);
 

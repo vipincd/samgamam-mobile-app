@@ -7,6 +7,6 @@ export const brand = {
   border: 'rgba(20,29,43,0.10)', danger: '#C04646',
   fonts: { body: 'Manrope_400Regular', medium: 'Manrope_600SemiBold', bold: 'Manrope_700Bold', display: 'Outfit_600SemiBold' },
   logo: require('../assets/brand/samgamam-logo.png'),
-  community: require('../assets/brand/community.png'),
+  community: require('../assets/brand/community.jpg'),
   caption: 'Moments we share',
 } as const;

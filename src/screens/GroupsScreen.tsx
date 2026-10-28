@@ -34,6 +34,16 @@ export function GroupsScreen(props: {
   const { targetGroupId, onClearTargetGroupId } = props;
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
+  const [draftMessage, setDraftMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [discussionLoading, setDiscussionLoading] = useState(false);
+  const [discussionForbidden, setDiscussionForbidden] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [mutatingGroupId, setMutatingGroupId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!targetGroupId) return;
@@ -71,16 +81,6 @@ export function GroupsScreen(props: {
       cancelled = true;
     };
   }, [targetGroupId, props.locale, onClearTargetGroupId, groups]);
-  const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
-  const [draftMessage, setDraftMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [discussionLoading, setDiscussionLoading] = useState(false);
-  const [discussionForbidden, setDiscussionForbidden] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [mutatingGroupId, setMutatingGroupId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   // Pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -224,7 +224,9 @@ export function GroupsScreen(props: {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void loadGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only on auth/focus/locale changes, not on selection or pagination
   }, [props.authenticated, props.isFocused, props.locale]);
 
   useEffect(() => {
@@ -232,7 +234,9 @@ export function GroupsScreen(props: {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void loadDiscussions(selectedGroup);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedGroup is derived from selectedGroupId + groups, both listed
   }, [props.authenticated, props.isFocused, props.locale, selectedGroupId, groups]);
 
   async function handleJoin(group: GroupSummary) {

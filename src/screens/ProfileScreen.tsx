@@ -95,9 +95,11 @@ export function ProfileScreen(props: {
 
   const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__) && !isProductionEnvironment();
 
-  useEffect(() => {
+  const [syncedApiBaseUrl, setSyncedApiBaseUrl] = useState(props.apiBaseUrl);
+  if (syncedApiBaseUrl !== props.apiBaseUrl) {
+    setSyncedApiBaseUrl(props.apiBaseUrl);
     setDraftApiBaseUrl(props.apiBaseUrl);
-  }, [props.apiBaseUrl]);
+  }
 
   useEffect(() => {
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -207,7 +209,9 @@ export function ProfileScreen(props: {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void loadDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when focus, locale or signed-in identity changes; loadDashboard reads those same values
   }, [props.isFocused, props.locale, props.session.authenticated, props.session.viewer?.id]);
 
   async function handleLogin() {

@@ -16,11 +16,6 @@ import { BrandedLaunch } from './src/startup/BrandedLaunch';
 import { useLaunchResources } from './src/startup/useLaunchResources';
 import { within } from './src/startup/within';
 
-void SplashScreen.preventAutoHideAsync().catch(() => undefined);
-SplashScreen.setOptions({ fade: false });
-const hideNativeSplash = () => { void SplashScreen.hideAsync().catch(() => undefined); };
-const tabIcons = { discover: Compass, groups: UsersRound, help: MessageCircle, profile: UserRound, 'auth-test': FlaskConical };
-
 import { apiClient, getErrorMessage } from './src/api/client';
 import { sessionManager } from './src/auth/session';
 import type { AuthSessionResponse } from './src/api/types';
@@ -40,6 +35,11 @@ import {
   unregisterDeviceOnLogoutAsync,
 } from './src/services/notifications';
 
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
+SplashScreen.setOptions({ fade: false });
+const hideNativeSplash = () => { void SplashScreen.hideAsync().catch(() => undefined); };
+const tabIcons = { discover: Compass, groups: UsersRound, help: MessageCircle, profile: UserRound, 'auth-test': FlaskConical };
+
 
 type ProductionTabKey = 'discover' | 'groups' | 'help' | 'profile';
 type TabKey = ProductionTabKey | 'auth-test';
@@ -50,22 +50,22 @@ const defaultSession: AuthSessionResponse = {
   viewer: null,
 };
 
-export const productionTabs: Array<{
+export const productionTabs: {
   key: ProductionTabKey;
   label: string;
   hint: string;
-}> = [
+}[] = [
   { key: 'discover', label: 'Discover', hint: 'Events' },
   { key: 'groups', label: 'Groups', hint: 'Community' },
   { key: 'help', label: 'Help', hint: 'AI guide' },
   { key: 'profile', label: 'Profile', hint: 'Account' },
 ];
 
-export function getTabs(isDevelopment: boolean): Array<{
+export function getTabs(isDevelopment: boolean): {
   key: TabKey;
   label: string;
   hint: string;
-}> {
+}[] {
   return isDevelopment
     ? [...productionTabs, { key: 'auth-test', label: 'Auth Test', hint: 'Dev only' }]
     : productionTabs;
@@ -189,8 +189,6 @@ function AppContent() {
   }
 
   async function bootstrapApp() {
-    setBootstrapping(true);
-
     try {
       const bootstrapState = await within(apiClient.initialize(), 8000);
       setApiBaseUrl(bootstrapState.apiBaseUrl);
@@ -215,6 +213,7 @@ function AppContent() {
         errorMessage: s.errorMessage,
       });
     });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void bootstrapApp();
     void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
       SplashScreen.setOptions({ fade: !reduced, duration: 160 });
@@ -229,7 +228,7 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (!bootstrapping) { setSlowStartup(false); return; }
+    if (!bootstrapping) return;
     const timer = setTimeout(() => setSlowStartup(true), 10000);
     return () => clearTimeout(timer);
   }, [bootstrapping]);
@@ -242,7 +241,7 @@ function AppContent() {
       handleNavigationTarget(target);
     });
 
-    void Linking.getInitialURL().then((url: string | null) => {
+    void Linking.getInitialURL().then((url: string | null | undefined) => {
       if (url) {
         const target = parseDeepLinkUrl(url);
         handleNavigationTarget(target);
@@ -372,7 +371,7 @@ function AppContent() {
   if (!resources.ready || (bootstrapping && !recovering)) {
     return <View style={styles.safeArea}>
       <StatusBar style="dark" />
-      <BrandedLaunch onReady={hideNativeSplash} slow={slowStartup && resources.ready}
+      <BrandedLaunch onReady={hideNativeSplash} slow={slowStartup && bootstrapping && resources.ready}
         assetError={resources.error} onRetry={resources.retry} onRecover={() => {
           setRecovering(true);
           setActiveTab('profile');
