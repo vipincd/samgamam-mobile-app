@@ -64,6 +64,7 @@ export function GroupMembershipApprovalsScreen(props: {
   }, [selectedGroupId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void loadRequests();
   }, [loadRequests]);
 

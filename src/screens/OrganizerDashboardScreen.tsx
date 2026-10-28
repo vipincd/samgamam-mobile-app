@@ -80,6 +80,8 @@ export function OrganizerDashboardScreen(props: {
   const [copilotResult, setCopilotResult] = useState<string | null>(null);
   const [copilotLoading, setCopilotLoading] = useState(false);
 
+  const [now, setNow] = useState(() => Date.now());
+
   const loadOrganizerData = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
@@ -92,6 +94,7 @@ export function OrganizerDashboardScreen(props: {
       const response = await apiClient.getOrganizerEvents();
       setEvents(response.events || []);
       setOverview(response.overview || null);
+      setNow(Date.now());
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -101,6 +104,7 @@ export function OrganizerDashboardScreen(props: {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     void loadOrganizerData();
   }, [loadOrganizerData]);
 
@@ -124,7 +128,6 @@ export function OrganizerDashboardScreen(props: {
 
   function getEventTemporalState(event: EventSummary): "upcoming" | "ongoing" | "past" | "cancelled" {
     if (event.status === "cancelled") return "cancelled";
-    const now = Date.now();
     const start = new Date(event.startsAt).getTime();
     const end = event.endsAt ? new Date(event.endsAt).getTime() : start + 3 * 60 * 60 * 1000;
     if (now < start) return "upcoming";

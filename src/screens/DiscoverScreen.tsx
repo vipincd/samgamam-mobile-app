@@ -46,7 +46,18 @@ export function DiscoverScreen(props: {
 }) {
   const { authenticated, isFocused, locale, onRequestSignIn, targetEventId, onClearTargetEventId } = props;
   const [events, setEvents] = useState<EventSummary[]>([]);
-  const [recommendations, setRecommendations] = useState<RecommendationsResponse | null>(null);
+  const recommendationsKey = authenticated && isFocused ? locale : null;
+  const [recommendationState, setRecommendationState] = useState<{
+    key: string | null;
+    value: RecommendationsResponse | null;
+  }>({ key: null, value: null });
+  const recommendations =
+    recommendationsKey !== null && recommendationState.key === recommendationsKey
+      ? recommendationState.value
+      : null;
+  const setRecommendations = (
+    update: (current: RecommendationsResponse | null) => RecommendationsResponse | null,
+  ) => setRecommendationState((state) => ({ ...state, value: update(state.value) }));
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [category, setCategory] = useState("All");
@@ -175,6 +186,7 @@ export function DiscoverScreen(props: {
 
   useEffect(() => {
     const operation = { cancelled: false };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
     if (isFocused) void loadEvents("", false, () => operation.cancelled);
     return () => {
       operation.cancelled = true;
@@ -183,18 +195,17 @@ export function DiscoverScreen(props: {
 
   useEffect(() => {
     let active = true;
-    setRecommendations(null);
-    if (authenticated && isFocused) {
+    if (recommendationsKey !== null) {
       void within(apiClient.getRecommendations(2))
         .then((r) => {
-          if (active) setRecommendations(r);
+          if (active) setRecommendationState({ key: recommendationsKey, value: r });
         })
         .catch(() => undefined);
     }
     return () => {
       active = false;
     };
-  }, [authenticated, isFocused, locale]);
+  }, [recommendationsKey]);
 
   async function openEventDetail(eventSummary: EventSummary) {
     setTermsAccepted(false);
@@ -515,7 +526,7 @@ export function DiscoverScreen(props: {
                 <Text style={styles.retryText}>Explore all</Text>
               </Pressable>
             </View>
-          ) : null
+          ) : undefined
         }
         ListFooterComponent={
           loadingMore ? (
@@ -524,7 +535,7 @@ export function DiscoverScreen(props: {
             </View>
           ) : !loading && visible.length > 0 ? (
             <Text style={styles.endNote}>Every gathering starts with showing up.</Text>
-          ) : null
+          ) : undefined
         }
       />
 
