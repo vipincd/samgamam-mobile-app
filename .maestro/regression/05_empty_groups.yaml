@@ -1,0 +1,10 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: empty
+- runFlow: ../launch.yaml
+- tapOn: "Groups"
+- assertVisible: "No groups available yet"
+- takeScreenshot: empty-groups

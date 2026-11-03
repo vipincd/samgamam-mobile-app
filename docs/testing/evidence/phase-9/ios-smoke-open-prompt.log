@@ -1,0 +1,14 @@
+
+> mobile-app@1.0.0 test:maestro
+> node scripts/testing/run-maestro.mjs *** smoke
+
+
+Waiting for flows to complete...
+[Failed] 01_startup (27s) (Assertion is false: "Development Build" is visible)
+[Failed] 02_navigation (25s) (Assertion is false: "Development Build" is visible)
+
+2/2 Flows Failed
+
+Evidence: artifacts/maestro/2026-11-03T05-52-10.626Z
+
+

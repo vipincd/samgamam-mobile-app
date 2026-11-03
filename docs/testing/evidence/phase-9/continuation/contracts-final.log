@@ -1,0 +1,27 @@
+
+> mobile-app@1.0.0 test:contracts
+> node --test tests/api/*.test.cjs tests/security/*.test.cjs
+
+✔ authentication, protected profile, consent, RSVP cancellation and revocation over real HTTP (31.542833ms)
+✔ discovery success, search, empty community and deterministic reset (2.994042ms)
+✔ error HTTP contract (1.071583ms)
+✔ unauthorized HTTP contract (0.962208ms)
+✔ forbidden HTTP contract (0.77775ms)
+✔ malformed JSON rejects parsing (1.7645ms)
+✔ offline closes transport and success recovers (3.790292ms)
+✔ timeout hangs until client aborts (102.415791ms)
+✔ control endpoint rejects unsupported modes (1.50225ms)
+✔ audit fails closed on empty (1.136916ms)
+✔ audit fails closed on registry (0.307417ms)
+✔ audit fails closed on malformed (0.766875ms)
+✔ audit fails closed on execution (0.4075ms)
+✔ audit accepts a complete clean report (0.556958ms)
+✔ audit rejects unapproved high vulnerabilities (0.913667ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 556.300167

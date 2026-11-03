@@ -1,0 +1,14 @@
+
+> mobile-app@1.0.0 test:maestro
+> node scripts/testing/run-maestro.mjs emulator-5554 smoke
+
+
+Waiting for flows to complete...
+[Failed] 01_startup (1s)
+[Failed] 02_navigation (23ms)
+
+2/2 Flows Failed
+
+Evidence: artifacts/maestro/2026-11-03T04-14-17.605Z
+
+

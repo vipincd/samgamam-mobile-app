@@ -266,7 +266,7 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (authState.status === 'authenticated' && authState.session.viewer?.id) {
+    if ((authState.status === 'signedIn' || authState.status === 'authenticated') && authState.session.viewer?.id) {
       const viewerId = authState.session.viewer.id;
       const locale = authState.session.locale ?? undefined;
 

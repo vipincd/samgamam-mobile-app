@@ -1,0 +1,66 @@
+name: Android deterministic acceptance
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      suite:
+        type: choice
+        options: [all, smoke, regression]
+        default: all
+permissions:
+  contents: read
+concurrency:
+  group: mobile-e2e-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPO_NO_DOTENV: '1'
+      EXPO_PUBLIC_LOCAL_ACCEPTANCE: '1'
+      EXPO_PUBLIC_API_URL: http://127.0.0.1:4318
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - name: Install pinned Maestro CLI
+        run: |
+          curl -fsSL https://get.maestro.mobile.dev | MAESTRO_VERSION=2.12.1 bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Generate and build Android bundled acceptance APK
+        run: |
+          npx expo prebuild --platform android --no-install
+          node scripts/testing/prepare-android-acceptance.mjs
+          cd android
+          ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --console=plain
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute smoke on PRs; selected regression suite on dispatch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash scripts/testing/android-ci.sh '${{ inputs.suite || 'smoke' }}'
+      - name: Retain APK, screenshots, logs and JUnit even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-acceptance
+          path: |
+            artifacts/
+            android/app/build/outputs/apk/release/*.apk
+          retention-days: 14

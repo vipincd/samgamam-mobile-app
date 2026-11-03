@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="Test Suite" device="samgamam_phase9" tests="12" failures="0" time="93.134" timestamp="2026-11-03T22:23:51">
+    <testcase id="01_startup" name="01_startup" classname="01_startup" file=".maestro/smoke/01_startup.yaml" time="5.472" timestamp="2026-11-03T22:23:51" status="SUCCESS"/>
+    <testcase id="02_navigation" name="02_navigation" classname="02_navigation" file=".maestro/smoke/02_navigation.yaml" time="13.833" timestamp="2026-11-03T22:23:56" status="SUCCESS"/>
+    <testcase id="03_event_details" name="03_event_details" classname="03_event_details" file=".maestro/regression/03_event_details.yaml" time="6.612" timestamp="2026-11-03T22:24:10" status="SUCCESS"/>
+    <testcase id="04_search_empty_recovery" name="04_search_empty_recovery" classname="04_search_empty_recovery" file=".maestro/regression/04_search_empty_recovery.yaml" time="13.216" timestamp="2026-11-03T22:24:17" status="SUCCESS"/>
+    <testcase id="05_empty_groups" name="05_empty_groups" classname="05_empty_groups" file=".maestro/regression/05_empty_groups.yaml" time="4.376" timestamp="2026-11-03T22:24:30" status="SUCCESS"/>
+    <testcase id="06_signed_out_profile" name="06_signed_out_profile" classname="06_signed_out_profile" file=".maestro/regression/06_signed_out_profile.yaml" time="4.726" timestamp="2026-11-03T22:24:34" status="SUCCESS"/>
+    <testcase id="07_error_recovery" name="07_error_recovery" classname="07_error_recovery" file=".maestro/regression/07_error_recovery.yaml" time="4.616" timestamp="2026-11-03T22:24:39" status="SUCCESS"/>
+    <testcase id="08_malformed_recovery" name="08_malformed_recovery" classname="08_malformed_recovery" file=".maestro/regression/08_malformed_recovery.yaml" time="4.595" timestamp="2026-11-03T22:24:44" status="SUCCESS"/>
+    <testcase id="09_offline_recovery" name="09_offline_recovery" classname="09_offline_recovery" file=".maestro/regression/09_offline_recovery.yaml" time="4.734" timestamp="2026-11-03T22:24:48" status="SUCCESS"/>
+    <testcase id="10_relaunch" name="10_relaunch" classname="10_relaunch" file=".maestro/regression/10_relaunch.yaml" time="7.981" timestamp="2026-11-03T22:24:53" status="SUCCESS"/>
+    <testcase id="11_background_recovery" name="11_background_recovery" classname="11_background_recovery" file=".maestro/regression/11_background_recovery.yaml" time="6.467" timestamp="2026-11-03T22:25:01" status="SUCCESS"/>
+    <testcase id="12_timeout_recovery" name="12_timeout_recovery" classname="12_timeout_recovery" file=".maestro/regression/12_timeout_recovery.yaml" time="16.452" timestamp="2026-11-03T22:25:07" status="SUCCESS"/>
+  </testsuite>
+</testsuites>

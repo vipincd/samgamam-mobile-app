@@ -1,0 +1,49 @@
+22:26:32.309 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Define variables RUNNING
+22:26:32.309 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Define variables COMPLETED
+22:26:32.309 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Apply configuration RUNNING
+22:26:32.310 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Apply configuration COMPLETED
+22:26:32.310 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../scripts/reset.js RUNNING
+22:26:32.321 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../scripts/reset.js COMPLETED
+22:26:32.321 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../launch.yaml RUNNING
+22:26:32.321 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Apply configuration RUNNING
+22:26:32.321 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Apply configuration COMPLETED
+22:26:32.321 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Launch app "com.samgamam.mobile" with clear state RUNNING
+22:26:32.321 [ INFO] maestro.Maestro.clearAppState$lambda$9: Clearing app state com.samgamam.mobile
+22:26:34.199 [ INFO] maestro.Maestro.launchApp$lambda$6: Launching app com.samgamam.mobile
+22:26:34.199 [ INFO] maestro.Maestro.launchApp$lambda$6: Stopping com.samgamam.mobile app during launch
+22:26:34.478 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Launch app "com.samgamam.mobile" with clear state COMPLETED
+22:26:34.478 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "Search events" is visible RUNNING
+22:26:35.983 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "Search events" is visible COMPLETED
+22:26:35.984 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../launch.yaml COMPLETED
+22:26:35.984 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Scrolling DOWN until "Try again" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled RUNNING
+22:26:36.075 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Scrolling try count: 0, DeviceWidth: 402, DeviceWidth: 874
+22:26:36.075 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Element bounds: Bounds(x=154, y=708, width=93, height=44)
+22:26:36.075 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Visibility Percent: 1.0
+22:26:36.075 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Command centerElement: ScrollUntilVisibleCommand(selector=ElementSelector(textRegex=Try again, idRegex=null, size=null, below=null, above=null, leftOf=null, rightOf=null, containsChild=null, containsDescendants=null, traits=null, index=null, enabled=null, optional=false, selected=null, checked=null, focused=null, childOf=null, css=null), direction=DOWN, scrollDuration=601, visibilityPercentage=100, timeout=20000, waitToSettleTimeoutMs=null, centerElement=false, originalSpeedValue=40, label=null, optional=false).centerElement
+22:26:36.075 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: visibilityPercentageNormalized: 1.0
+22:26:36.076 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Scrolling DOWN until "Try again" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled COMPLETED
+22:26:36.076 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "Let’s reconnect" is visible RUNNING
+22:26:36.159 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "Let’s reconnect" is visible COMPLETED
+22:26:36.159 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Take screenshot network-error RUNNING
+22:26:36.160 [ INFO] maestro.Maestro.takeScreenshot: Taking screenshot
+22:26:36.160 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:36.225 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Take screenshot network-error COMPLETED
+22:26:36.226 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../scripts/reset.js RUNNING
+22:26:36.233 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../scripts/reset.js COMPLETED
+22:26:36.233 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Tap on "Try again" RUNNING
+22:26:36.318 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tapping on element:  UiElement(treeNode=TreeNode(attributes={accessibilityText=Try again, title=, value=, text=, hintText=, resource-id=, bounds=[154,708][247,752], enabled=true, focused=false, selected=false, checked=false}, children=[], clickable=null, enabled=true, focused=false, checked=false, selected=false), bounds=Bounds(x=154, y=708, width=93, height=44))
+22:26:36.439 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tap aimed via trusted pre-wait hierarchy (null settle, no recent scroll)
+22:26:36.439 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Try tapping at (200, 730) using hierarchy based logic for wait
+22:26:36.440 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to byte array
+22:26:36.440 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:37.023 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Something have changed in the UI judging by view hierarchy. Proceed.
+22:26:37.023 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Tap on "Try again" COMPLETED
+22:26:37.023 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Scrolling DOWN until "View details for Berlin Community Walk" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled RUNNING
+22:26:37.114 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Scrolling try count: 0, DeviceWidth: 402, DeviceWidth: 874
+22:26:37.114 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Element bounds: Bounds(x=39, y=634, width=324, height=99)
+22:26:37.115 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Visibility Percent: 1.0
+22:26:37.115 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Command centerElement: ScrollUntilVisibleCommand(selector=ElementSelector(textRegex=View details for Berlin Community Walk, idRegex=null, size=null, below=null, above=null, leftOf=null, rightOf=null, containsChild=null, containsDescendants=null, traits=null, index=null, enabled=null, optional=false, selected=null, checked=null, focused=null, childOf=null, css=null), direction=DOWN, scrollDuration=601, visibilityPercentage=100, timeout=20000, waitToSettleTimeoutMs=null, centerElement=false, originalSpeedValue=40, label=null, optional=false).centerElement
+22:26:37.115 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: visibilityPercentageNormalized: 1.0
+22:26:37.115 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Scrolling DOWN until "View details for Berlin Community Walk" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled COMPLETED
+22:26:37.115 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "View details for Berlin Community Walk" is visible RUNNING
+22:26:37.200 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "View details for Berlin Community Walk" is visible COMPLETED

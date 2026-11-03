@@ -1,0 +1,31 @@
+22:26:20.564 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Define variables RUNNING
+22:26:20.564 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Define variables COMPLETED
+22:26:20.564 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Apply configuration RUNNING
+22:26:20.565 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Apply configuration COMPLETED
+22:26:20.565 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../scripts/reset.js RUNNING
+22:26:20.577 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../scripts/reset.js COMPLETED
+22:26:20.577 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../launch.yaml RUNNING
+22:26:20.577 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Apply configuration RUNNING
+22:26:20.577 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Apply configuration COMPLETED
+22:26:20.577 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Launch app "com.samgamam.mobile" with clear state RUNNING
+22:26:20.578 [ INFO] maestro.Maestro.clearAppState$lambda$9: Clearing app state com.samgamam.mobile
+22:26:22.323 [ INFO] maestro.Maestro.launchApp$lambda$6: Launching app com.samgamam.mobile
+22:26:22.323 [ INFO] maestro.Maestro.launchApp$lambda$6: Stopping com.samgamam.mobile app during launch
+22:26:22.552 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Launch app "com.samgamam.mobile" with clear state COMPLETED
+22:26:22.552 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "Search events" is visible RUNNING
+22:26:24.049 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "Search events" is visible COMPLETED
+22:26:24.049 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../launch.yaml COMPLETED
+22:26:24.049 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Tap on "Groups" RUNNING
+22:26:24.131 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tapping on element:  UiElement(treeNode=TreeNode(attributes={accessibilityText=Groups, title=, value=, text=, hintText=, resource-id=, bounds=[104,781][201,833], enabled=true, focused=false, selected=false, checked=false}, children=[], clickable=null, enabled=true, focused=false, checked=false, selected=false), bounds=Bounds(x=104, y=781, width=97, height=52))
+22:26:24.503 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tap aimed via trusted pre-wait hierarchy (null settle, no recent scroll)
+22:26:24.503 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Try tapping at (152, 807) using hierarchy based logic for wait
+22:26:24.503 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to byte array
+22:26:24.503 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:25.077 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Something have changed in the UI judging by view hierarchy. Proceed.
+22:26:25.077 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Tap on "Groups" COMPLETED
+22:26:25.078 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "No groups available yet" is visible RUNNING
+22:26:25.153 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "No groups available yet" is visible COMPLETED
+22:26:25.154 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Take screenshot empty-groups RUNNING
+22:26:25.155 [ INFO] maestro.Maestro.takeScreenshot: Taking screenshot
+22:26:25.156 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:25.214 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Take screenshot empty-groups COMPLETED

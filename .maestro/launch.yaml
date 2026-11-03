@@ -1,0 +1,8 @@
+appId: com.samgamam.mobile
+---
+# Bundled local acceptance build: no development launcher or Metro dependency.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Search events"
+    timeout: 60000

@@ -1,0 +1,7 @@
+
+> mobile-app@1.0.0 security:audit
+> node scripts/security-audit.cjs
+
+Accepted temporary mobile build-tool exception: GHSA-5P2G-FCMC-QVQQ (image-size) — JXL/HEIF build-tool DoS; patched 2.x exists, but Metro 0.83.3 uses the callable 1.x export. Only trusted repository assets are bundled; migrate with Expo/Metro compatibility verification. Expires 2026-11-15T00:00:00.000Z.
+Accepted temporary mobile build-tool exception: GHSA-W3RX-R6R6-PGPR (image-size) — ICNS build-tool DoS; patched 2.x exists, but Metro 0.83.3 uses the callable 1.x export. No patched 1.x published as of 2026-11-03; only trusted repository assets are bundled. Expires 2026-11-15T00:00:00.000Z.
+npm audit gate passed. critical=0, high=1, moderate=68, low=5. High/critical direct advisories are either absent or explicitly time-bounded above.

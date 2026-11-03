@@ -2,9 +2,21 @@ import { apiClient } from './client';
 
 describe('real backend live integration against /api/v1', () => {
   const REAL_BACKEND_URL =
-    process.env.API_BASE_URL || process.env.REAL_BACKEND_URL || 'http://127.0.0.1:3002';
+    process.env.REAL_BACKEND_URL || '';
 
   beforeAll(async () => {
+    if (process.env.RUN_STAGING_INTEGRATION !== '1' || !REAL_BACKEND_URL ||
+        !process.env.STAGING_TEST_EMAIL || !process.env.STAGING_TEST_PASSWORD ||
+        !process.env.STAGING_TEST_EVENT_ID) {
+      throw new Error('Staging integration requires explicit opt-in, URL, owned test credentials and an owned test event.');
+    }
+    const url = new URL(REAL_BACKEND_URL);
+    const local = ['localhost', '127.0.0.1', '10.0.2.2'].includes(url.hostname);
+    if (['samgamam.com', 'www.samgamam.com', 'api.samgamam.com'].includes(url.hostname) ||
+        (!local && url.protocol !== 'https:') || url.username || url.password) {
+      throw new Error('Production or insecure staging integration target is not allowed.');
+    }
+
     let isBackendLive = false;
     try {
       const res = await fetch(`${REAL_BACKEND_URL}/api/healthz`);
@@ -17,6 +29,14 @@ describe('real backend live integration against /api/v1', () => {
       throw new Error(
         `Real backend is unavailable at ${REAL_BACKEND_URL}. Live integration tests require a running backend server. Start the server (e.g. PORT=3002 npm run dev) before running this test.`,
       );
+    }
+  });
+
+  afterAll(async () => {
+    if (apiClient.hasStoredAccessToken()) {
+      await apiClient.unregisterDevice('iphone17-sim-integration-uuid').catch(() => undefined);
+      if (process.env.STAGING_TEST_EVENT_ID) await apiClient.cancelRsvp(process.env.STAGING_TEST_EVENT_ID).catch(() => undefined);
+      await apiClient.logout();
     }
   });
 
@@ -48,18 +68,18 @@ describe('real backend live integration against /api/v1', () => {
     expect(Array.isArray(searchRes.items)).toBe(true);
 
     // 4. Session Login: login with demo user
-    const login = await apiClient.login('vipin@example.local', 'Samgamam!Demo2026');
+    const login = await apiClient.login(process.env.STAGING_TEST_EMAIL!, process.env.STAGING_TEST_PASSWORD!);
     expect(login.accessToken).toBeDefined();
-    expect(login.viewer.email).toBe('vipin@example.local');
+    expect(login.viewer.email).toBe(process.env.STAGING_TEST_EMAIL);
 
     // 5. Profile: getSession uses /api/v1/me with Bearer token
     const session = await apiClient.getSession();
     expect(session.authenticated).toBe(true);
-    expect(session.viewer?.email).toBe('vipin@example.local');
+    expect(session.viewer?.email).toBe(process.env.STAGING_TEST_EMAIL);
 
     // 6. Profile: getViewerProfile uses /api/v1/me
     const profile = await apiClient.getViewerProfile('en');
-    expect(profile.data.viewer?.email).toBe('vipin@example.local');
+    expect(profile.data.viewer?.email).toBe(process.env.STAGING_TEST_EMAIL);
     expect(profile.meta.requestId).toBeDefined();
 
     // 7. Groups: getGroups uses /api/v1/groups
@@ -76,10 +96,11 @@ describe('real backend live integration against /api/v1', () => {
 
     // 8. Discover RSVP: rsvpToEvent via /api/v1/events/{id}/rsvp
     if (eventsRes.events.length > 0) {
-      const targetEvent = eventsRes.events[0];
-      const rsvp = await apiClient.rsvpToEvent(targetEvent.id, 'going');
+      const targetEvent = (await apiClient.getEvent(process.env.STAGING_TEST_EVENT_ID!)).event;
+      const rsvp = await apiClient.rsvpToEvent(targetEvent.id, 'going', { termsAccepted: true, riskAcknowledged: targetEvent.requiresRiskAcknowledgement });
       expect(rsvp.event.id).toBe(targetEvent.id);
       expect(rsvp.event.viewerRsvpState).toBe('going');
+      await apiClient.cancelRsvp(targetEvent.id);
     }
 
     // 9. Device registration: registerDevice via /api/v1/devices/register

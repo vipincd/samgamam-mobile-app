@@ -1,0 +1,21 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- tapOn: "Search events"
+- inputText: "nomatch"
+- hideKeyboard
+- tapOn: "Search"
+- scrollUntilVisible:
+    element: "A new moment is around the corner"
+    direction: DOWN
+- assertVisible: "A new moment is around the corner"
+- takeScreenshot: empty-search
+- tapOn: "Explore all"
+- scrollUntilVisible:
+    element: "View details for Berlin Community Walk"
+    direction: DOWN
+- assertVisible: "View details for Berlin Community Walk"

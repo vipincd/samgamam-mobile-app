@@ -1,0 +1,22 @@
+
+> mobile-app@1.0.0 test:maestro
+> node scripts/testing/run-maestro.mjs emulator-5556 all
+
+
+Waiting for flows to complete...
+[Passed] 01_startup (5s)
+[Passed] 02_navigation (14s)
+[Passed] 03_event_details (7s)
+[Passed] 04_search_empty_recovery (13s)
+[Passed] 05_empty_groups (4s)
+[Passed] 06_signed_out_profile (5s)
+[Passed] 07_error_recovery (5s)
+[Passed] 08_malformed_recovery (5s)
+[Passed] 09_offline_recovery (5s)
+[Passed] 10_relaunch (8s)
+[Passed] 11_background_recovery (6s)
+[Passed] 12_timeout_recovery (16s)
+
+12/12 Flows Passed in 1m 33s
+
+Evidence: artifacts/maestro/2026-11-03T21-23-45.460Z

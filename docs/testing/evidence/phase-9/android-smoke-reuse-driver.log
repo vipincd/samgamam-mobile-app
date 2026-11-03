@@ -1,0 +1,10 @@
+
+> mobile-app@1.0.0 test:maestro
+> node scripts/testing/run-maestro.mjs emulator-5554 smoke
+
+
+Waiting for flows to complete...
+[Failed] 01_startup (1m 3s) (Assertion is false: "Search events" is visible)
+Evidence: artifacts/maestro/2026-11-03T05-48-01.120Z
+
+

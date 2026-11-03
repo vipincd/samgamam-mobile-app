@@ -1,0 +1,46 @@
+Starting project at /Users/vidas/dev/projects/samgamammobile
+Starting Metro Bundler
+Waiting on http://localhost:8083
+Logs for your project will appear below.
+Android ./index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+| (node:24806) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24809) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24814) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24807) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24813) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24810) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24811) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24808) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24815) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:24812) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+Android ./index.ts ▓▓▓▓▓░░░░░░░░░░░ 35.3% ( 508/2398)
+Android Bundling failed 5632ms index.ts (2784 modules)
+ ERROR  ENOENT: no such file or directory, open '/Users/vidas/dev/projects/samgamammobile/node_modules/react-native/node_modules/@react-native/virtualized-lists/package.json'
+
+Import stack:
+
+ node_modules/react-native/Libraries/Lists/SectionList.js
+ | import "@react-native/virtualized-lists"
+
+ node_modules/react-native/index.js
+ | import "./Libraries/Lists/SectionList"
+
+ App.tsx
+ | import "react-native"
+
+ index.ts
+ | import "./App"
+
+ 
+ | import "./index.ts"
+

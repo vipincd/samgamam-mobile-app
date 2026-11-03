@@ -1,0 +1,42 @@
+{
+  "unit": {
+    "passed": 176,
+    "failed": 0,
+    "suites": 15
+  },
+  "contracts": {
+    "passed": 15,
+    "failed": 0
+  },
+  "typecheck": "passed",
+  "lint": {
+    "errors": 0,
+    "warnings": 3
+  },
+  "expoDoctor": {
+    "passed": 18,
+    "failed": 0
+  },
+  "security": {
+    "gate": "passed with exceptions",
+    "rawAuditExitCode": 1,
+    "critical": 0,
+    "high": 1,
+    "moderate": 68,
+    "low": 5
+  },
+  "androidBuild": "passed bundled Release (local acceptance)",
+  "iosBuild": "passed bundled Release Simulator (local acceptance)",
+  "androidMaestro": {
+    "passed": 12,
+    "failed": 0,
+    "total": 12,
+    "seconds": 93.134
+  },
+  "iosMaestro": {
+    "passed": 12,
+    "failed": 0,
+    "total": 12,
+    "seconds": 100.434
+  }
+}

@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { ApiClient, apiClient, normalizeEventSummary, ApiError, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
+import { ApiClient, apiClient, normalizeBaseUrl, normalizeEventSummary, ApiError, DEFAULT_REQUEST_TIMEOUT_MS } from './client';
 
 jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => undefined),
@@ -888,5 +888,29 @@ describe("Phase 2 API contract hardening and error model", () => {
       const freshClient = new ApiClient();
       expect(freshClient.getBaseUrl()).toBe("https://api.samgamam.com");
     });
+  });
+});
+
+
+describe('bundled local acceptance URL isolation', () => {
+  const environment = process.env;
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
+  beforeEach(() => {
+    process.env = { ...environment, APP_ENV: 'development', EXPO_PUBLIC_LOCAL_ACCEPTANCE: '1' };
+    Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: false });
+  });
+  afterEach(() => {
+    process.env = environment;
+    if (descriptor) Object.defineProperty(globalThis, '__DEV__', descriptor);
+  });
+  it('allows only the exact loopback mock in an explicitly opted-in release bundle', () => {
+    expect(normalizeBaseUrl('http://127.0.0.1:4318')).toBe('http://127.0.0.1:4318');
+  });
+  it.each(['https://samgamam.com', 'http://127.0.0.1:3000', 'http://10.0.2.2:4318', 'http://127.0.0.1:4318@evil.test'])('rejects %s', (url) => {
+    expect(() => normalizeBaseUrl(url)).toThrow('Local acceptance requires');
+  });
+  it('retains HTTPS enforcement without acceptance opt-in', () => {
+    delete process.env.EXPO_PUBLIC_LOCAL_ACCEPTANCE;
+    expect(() => normalizeBaseUrl('http://127.0.0.1:4318')).toThrow('requires HTTPS');
   });
 });

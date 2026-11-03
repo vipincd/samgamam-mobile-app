@@ -1,0 +1,21 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: offline
+- runFlow: ../launch.yaml
+- scrollUntilVisible:
+    element: "Try again"
+    direction: DOWN
+- assertVisible: "Let’s reconnect"
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- tapOn: "Try again"
+- scrollUntilVisible:
+    element: "View details for Berlin Community Walk"
+    direction: DOWN
+- assertVisible: "View details for Berlin Community Walk"
+- takeScreenshot: offline-recovered

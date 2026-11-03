@@ -1,0 +1,15 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- tapOn: "Groups"
+- assertVisible: "Community circles"
+- tapOn: "Help"
+- tapOn: "Profile"
+- assertVisible: "Account & Preferences"
+- tapOn: "Discover"
+- assertVisible: "Search events"
+- takeScreenshot: navigation

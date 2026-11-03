@@ -1,0 +1,23 @@
+
+> mobile-app@1.0.0 test:maestro
+> node scripts/testing/run-maestro.mjs emulator-5554 smoke
+
+
+Waiting for flows to complete...
+[Failed] 01_startup (2s)
+[Failed] 02_navigation (346ms)
+
+2/2 Flows Failed
+
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                │
+│   Debug tests faster by easy access to test recordings, maestro logs, screenshots, and more.   │
+│                                                                                                │
+│   Run your flows on Maestro Cloud:                                                             │
+│   maestro cloud app_file flows_folder/                                                         │
+│                                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Evidence: artifacts/maestro/2026-11-03T04-13-40.039Z
+
+

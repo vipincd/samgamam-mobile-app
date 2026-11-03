@@ -1,0 +1,70 @@
+22:26:06.722 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Define variables RUNNING
+22:26:06.722 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Define variables COMPLETED
+22:26:06.723 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Apply configuration RUNNING
+22:26:06.723 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Apply configuration COMPLETED
+22:26:06.723 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../scripts/reset.js RUNNING
+22:26:06.734 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../scripts/reset.js COMPLETED
+22:26:06.734 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Run ../launch.yaml RUNNING
+22:26:06.734 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Apply configuration RUNNING
+22:26:06.734 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Apply configuration COMPLETED
+22:26:06.734 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Launch app "com.samgamam.mobile" with clear state RUNNING
+22:26:06.735 [ INFO] maestro.Maestro.clearAppState$lambda$9: Clearing app state com.samgamam.mobile
+22:26:08.410 [ INFO] maestro.Maestro.launchApp$lambda$6: Launching app com.samgamam.mobile
+22:26:08.410 [ INFO] maestro.Maestro.launchApp$lambda$6: Stopping com.samgamam.mobile app during launch
+22:26:08.635 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Launch app "com.samgamam.mobile" with clear state COMPLETED
+22:26:08.635 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "Search events" is visible RUNNING
+22:26:10.151 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "Search events" is visible COMPLETED
+22:26:10.151 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Run ../launch.yaml COMPLETED
+22:26:10.151 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Tap on "Search events" RUNNING
+22:26:10.238 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tapping on element:  UiElement(treeNode=TreeNode(attributes={accessibilityText=Search events, title=, value=, text=, hintText=City, gathering or a little inspiration…, resource-id=, bounds=[62,271][323,323], enabled=true, focused=false, selected=false, checked=false}, children=[], clickable=null, enabled=true, focused=false, checked=false, selected=false), bounds=Bounds(x=62, y=271, width=261, height=52))
+22:26:10.600 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tap aimed via trusted pre-wait hierarchy (null settle, no recent scroll)
+22:26:10.601 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Try tapping at (192, 297) using hierarchy based logic for wait
+22:26:10.601 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to byte array
+22:26:10.601 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:11.159 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Something have changed in the UI judging by view hierarchy. Proceed.
+22:26:11.159 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Tap on "Search events" COMPLETED
+22:26:11.160 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Input text nomatch RUNNING
+22:26:11.162 [ INFO] maestro.Maestro.inputText: Inputting text: nomatch
+22:26:12.685 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Input text nomatch COMPLETED
+22:26:12.685 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Hide Keyboard RUNNING
+22:26:12.687 [ INFO] maestro.Maestro.hideKeyboard$lambda$13: Hiding Keyboard
+22:26:16.794 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Hide Keyboard COMPLETED
+22:26:16.794 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Tap on "Search" RUNNING
+22:26:16.887 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tapping on element:  UiElement(treeNode=TreeNode(attributes={accessibilityText=Search, title=, value=, text=, hintText=, resource-id=, bounds=[331,264][375,304], enabled=true, focused=false, selected=false, checked=false}, children=[], clickable=null, enabled=true, focused=false, checked=false, selected=false), bounds=Bounds(x=331, y=264, width=44, height=40))
+22:26:17.009 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tap aimed via stabilised hierarchy (null settle after a scroll)
+22:26:17.098 [ INFO] maestro.Maestro.refreshElementUntilStable-Hkttul8: Element is still moving (null -> Bounds(x=331, y=264, width=44, height=40)). Waiting for its position to settle.
+22:26:17.312 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Try tapping at (353, 284) using hierarchy based logic for wait
+22:26:17.312 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to byte array
+22:26:17.312 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:17.866 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Something have changed in the UI judging by view hierarchy. Proceed.
+22:26:17.866 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Tap on "Search" COMPLETED
+22:26:17.866 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Scrolling DOWN until "A new moment is around the corner" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled RUNNING
+22:26:17.953 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Scrolling try count: 0, DeviceWidth: 402, DeviceWidth: 874
+22:26:17.953 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Element bounds: Bounds(x=44, y=452, width=314, height=53)
+22:26:17.954 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Visibility Percent: 1.0
+22:26:17.954 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Command centerElement: ScrollUntilVisibleCommand(selector=ElementSelector(textRegex=A new moment is around the corner, idRegex=null, size=null, below=null, above=null, leftOf=null, rightOf=null, containsChild=null, containsDescendants=null, traits=null, index=null, enabled=null, optional=false, selected=null, checked=null, focused=null, childOf=null, css=null), direction=DOWN, scrollDuration=601, visibilityPercentage=100, timeout=20000, waitToSettleTimeoutMs=null, centerElement=false, originalSpeedValue=40, label=null, optional=false).centerElement
+22:26:17.954 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: visibilityPercentageNormalized: 1.0
+22:26:17.954 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Scrolling DOWN until "A new moment is around the corner" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled COMPLETED
+22:26:17.954 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "A new moment is around the corner" is visible RUNNING
+22:26:18.035 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "A new moment is around the corner" is visible COMPLETED
+22:26:18.035 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Take screenshot empty-search RUNNING
+22:26:18.036 [ INFO] maestro.Maestro.takeScreenshot: Taking screenshot
+22:26:18.036 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:18.092 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Take screenshot empty-search COMPLETED
+22:26:18.092 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Tap on "Explore all" RUNNING
+22:26:18.280 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tapping on element:  UiElement(treeNode=TreeNode(attributes={accessibilityText=Explore all, title=, value=, text=, hintText=, resource-id=, bounds=[151,549][251,593], enabled=true, focused=false, selected=false, checked=false}, children=[], clickable=null, enabled=true, focused=false, checked=false, selected=false), bounds=Bounds(x=151, y=549, width=100, height=44))
+22:26:18.389 [ INFO] maestro.Maestro.tap-HgV9Ck0: Tap aimed via trusted pre-wait hierarchy (null settle, no recent scroll)
+22:26:18.390 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Try tapping at (201, 571) using hierarchy based logic for wait
+22:26:18.390 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to byte array
+22:26:18.390 [TRACE] maestro.utils.ScreenshotUtils.takeScreenshot: Taking screenshot to output sink
+22:26:18.968 [ INFO] maestro.Maestro.screenshotBasedTap-ogj28Uc: Something have changed in the UI judging by view hierarchy. Proceed.
+22:26:18.969 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Tap on "Explore all" COMPLETED
+22:26:18.969 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Scrolling DOWN until "View details for Berlin Community Walk" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled RUNNING
+22:26:19.060 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Scrolling try count: 0, DeviceWidth: 402, DeviceWidth: 874
+22:26:19.060 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Element bounds: Bounds(x=39, y=634, width=324, height=99)
+22:26:19.060 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Visibility Percent: 1.0
+22:26:19.060 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: Command centerElement: ScrollUntilVisibleCommand(selector=ElementSelector(textRegex=View details for Berlin Community Walk, idRegex=null, size=null, below=null, above=null, leftOf=null, rightOf=null, containsChild=null, containsDescendants=null, traits=null, index=null, enabled=null, optional=false, selected=null, checked=null, focused=null, childOf=null, css=null), direction=DOWN, scrollDuration=601, visibilityPercentage=100, timeout=20000, waitToSettleTimeoutMs=null, centerElement=false, originalSpeedValue=40, label=null, optional=false).centerElement
+22:26:19.060 [ INFO] maestro.orchestra.Orchestra.scrollUntilVisible: visibilityPercentageNormalized: 1.0
+22:26:19.060 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Scrolling DOWN until "View details for Berlin Community Walk" is visible with speed 40, visibility percentage 100%, timeout 20000 ms, with centering disabled COMPLETED
+22:26:19.060 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandStart: Assert that "View details for Berlin Community Walk" is visible RUNNING
+22:26:19.147 [ INFO] maestro.cli.runner.CliConsoleListener.onCommandFinished: Assert that "View details for Berlin Community Walk" is visible COMPLETED

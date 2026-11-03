@@ -1,0 +1,12 @@
+{
+  "commit": "UNVERIFIED",
+  "checks": {
+    "androidEmulator": { "status": "pending", "evidence": "", "reviewer": "" },
+    "iosSimulator": { "status": "pending", "evidence": "", "reviewer": "" },
+    "physicalAndroid": { "status": "blocked", "evidence": "", "reviewer": "" },
+    "physicalIPhone": { "status": "blocked", "evidence": "", "reviewer": "" },
+    "security": { "status": "pending", "evidence": "", "reviewer": "" },
+    "accessibility": { "status": "pending", "evidence": "", "reviewer": "" },
+    "authenticatedJourneys": { "status": "blocked", "evidence": "", "reviewer": "" }
+  }
+}

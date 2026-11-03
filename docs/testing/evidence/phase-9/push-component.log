@@ -1,0 +1,11 @@
+
+PASS ./App.notifications.test.tsx (7.514 s)
+  ✓ registers push for the SessionManager signedIn state and removes its listener on unmount (532 ms)
+  ✓ does not register a signed-out user (168 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       2 passed, 2 total
+Snapshots:   0 total
+Time:        8.596 s
+Ran all test suites matching /App.notifications.test.tsx/i.
+

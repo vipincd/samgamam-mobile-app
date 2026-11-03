@@ -6,23 +6,17 @@ const ALLOWED_HIGH_GHSAS = new Map([
     "GHSA-5P2G-FCMC-QVQQ",
     {
       packageName: "image-size",
-      reason: "JXL/HEIF infinite-loop DoS; no patched npm release exists as of 2026-10-02",
+      reason: "JXL/HEIF build-tool DoS; patched 2.x exists, but Metro 0.83.3 uses the callable 1.x export. Only trusted repository assets are bundled; migrate with Expo/Metro compatibility verification",
     },
   ],
   [
     "GHSA-W3RX-R6R6-PGPR",
     {
       packageName: "image-size",
-      reason: "ICNS infinite-loop DoS; advertised 2.0.3 patch is not published as of 2026-10-02",
+      reason: "ICNS build-tool DoS; patched 2.x exists, but Metro 0.83.3 uses the callable 1.x export. No patched 1.x published as of 2026-11-03; only trusted repository assets are bundled",
     },
   ],
-  [
-    "GHSA-86W9-CPQP-85RV",
-    {
-      packageName: "node-forge",
-      reason: "RSA verifier issue in Expo build/certificate tooling; no patched node-forge release exists as of 2026-10-02 and Samgamam runtime code does not import this tooling",
-    },
-  ],
+
 ]);
 
 function extractGhsa(value) {
@@ -60,6 +54,12 @@ try {
 } catch (error) {
   console.error("Unable to parse npm audit JSON.");
   console.error(result.stderr || error);
+  process.exit(1);
+}
+
+if (result.error || result.signal || ![0, 1].includes(result.status) || audit.error ||
+    !audit.metadata?.vulnerabilities || !audit.vulnerabilities) {
+  console.error("npm audit failed to produce a complete vulnerability report.");
   process.exit(1);
 }
 

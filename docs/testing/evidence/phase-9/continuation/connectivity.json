@@ -1,0 +1,45 @@
+[
+  {
+    "command": [
+      "adb",
+      "-s",
+      "emulator-5556",
+      "get-state"
+    ],
+    "exitCode": 0,
+    "stdout": "device\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "adb",
+      "-s",
+      "emulator-5556",
+      "reverse",
+      "--list"
+    ],
+    "exitCode": 0,
+    "stdout": "host-16 tcp:4318 tcp:4318\nhost-16 tcp:8083 tcp:8083\n\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "curl",
+      "-fsS",
+      "http://127.0.0.1:8083/status"
+    ],
+    "exitCode": 0,
+    "stdout": "packager-status:running",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "curl",
+      "-fsS",
+      "http://127.0.0.1:4318/__mock/health"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"service\":\"samgamam-acceptance-mock\"}",
+    "stderr": ""
+  }
+]

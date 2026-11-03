@@ -1,0 +1,10 @@
+Starting project at /Users/vidas/dev/projects/samgamammobile
+TypeError: _ws(...).WebSocketServer is not a constructor
+TypeError: _ws(...).WebSocketServer is not a constructor
+    at createMessagesSocket (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/dev-server/createMessageSocket.ts:28:18)
+    at createMetroMiddleware (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/dev-server/createMetroMiddleware.ts:28:40)
+    at instantiateMetroAsync (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/instantiateMetro.ts:244:97)
+    at MetroBundlerDevServer.startImplementationAsync (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:1062:69)
+    at MetroBundlerDevServer.startAsync (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/server/BundlerDevServer.ts:171:18)
+    at DevServerManager.startAsync (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/server/DevServerManager.ts:184:7)
+    at startAsync (/Users/vidas/dev/projects/samgamammobile/node_modules/expo/node_modules/@expo/cli/src/start/startAsync.ts:100:3)

@@ -1,0 +1,26 @@
+mobile-app@1.0.0 /Users/vidas/dev/projects/samgamammobile
+├─┬ expo@54.0.38
+│ ├─┬ @expo/cli@54.0.28
+│ │ ├─┬ @react-native/dev-middleware@0.81.5
+│ │ │ └── ws@7.5.13 deduped
+│ │ └── ws@7.5.13 deduped
+│ └─┬ @expo/metro@54.2.0
+│   └─┬ metro@0.83.3
+│     └── ws@7.5.13 deduped
+├─┬ jest-expo@54.0.18
+│ └─┬ jest-environment-jsdom@29.7.0
+│   └─┬ jsdom@20.0.3
+│     └── ws@8.21.3 invalid: "^7.5.11" from node_modules/jsdom
+└─┬ react-native@0.81.5
+  ├─┬ @react-native/virtualized-lists@0.81.5
+  │ └─┬ react-native@0.88.1
+  │   ├─┬ @react-native/community-cli-plugin@0.88.1
+  │   │ ├─┬ @react-native/dev-middleware@0.88.1
+  │   │ │ └── ws@7.5.13 deduped
+  │   │ └─┬ metro@0.87.2
+  │   │   └── ws@7.5.13 deduped
+  │   └── ws@7.5.13 deduped
+  ├─┬ react-devtools-core@6.1.5
+  │ └── ws@7.5.13 deduped
+  └── ws@7.5.13
+

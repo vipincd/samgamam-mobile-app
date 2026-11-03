@@ -1,0 +1,125 @@
+
+> mobile-app@1.0.0 test
+> jest --runInBand --testPathIgnorePatterns=.*real-backend.* --json --outputFile=docs/testing/evidence/phase-9/continuation/jest-final.json
+
+PASS src/api/deterministic-backend.test.ts (16.458 s)
+PASS ./App.test.ts
+PASS src/components/ui.test.tsx
+PASS src/api/event-lifecycle.test.ts
+PASS src/auth/session.test.ts
+PASS ./App.notifications.test.tsx
+FAIL src/api/client.test.ts
+  ● bundled local acceptance URL isolation › allows only the exact loopback mock in an explicitly opted-in release bundle
+
+    Samgamam requires HTTPS outside local development.
+
+      154 |   }
+      155 |
+    > 156 |   throw new Error("Samgamam requires HTTPS outside local development.");
+          |         ^
+      157 | }
+      158 |
+      159 | export function resolveBaseUrl(override?: string | null): string {
+
+      at normalizeBaseUrl (src/api/client.ts:156:9)
+      at Object.<anonymous> (src/api/client.test.ts:907:28)
+
+  ● bundled local acceptance URL isolation › rejects https://samgamam.com
+
+    expect(received).toThrow(expected)
+
+    Expected substring: "Local acceptance requires"
+
+    Received function did not throw
+
+      908 |   });
+      909 |   it.each(['https://samgamam.com', 'http://127.0.0.1:3000', 'http://10.0.2.2:4318', 'http://127.0.0.1:4318@evil.test'])('rejects %s', (url) => {
+    > 910 |     expect(() => normalizeBaseUrl(url)).toThrow('Local acceptance requires');
+          |                                         ^
+      911 |   });
+      912 |   it('retains HTTPS enforcement without acceptance opt-in', () => {
+      913 |     delete process.env.EXPO_PUBLIC_LOCAL_ACCEPTANCE;
+
+      at toThrow (src/api/client.test.ts:910:41)
+
+  ● bundled local acceptance URL isolation › rejects http://127.0.0.1:3000
+
+    expect(received).toThrow(expected)
+
+    Expected substring: "Local acceptance requires"
+    Received message:   "Samgamam requires HTTPS outside local development."
+
+          154 |   }
+          155 |
+        > 156 |   throw new Error("Samgamam requires HTTPS outside local development.");
+              |         ^
+          157 | }
+          158 |
+          159 | export function resolveBaseUrl(override?: string | null): string {
+
+      at normalizeBaseUrl (src/api/client.ts:156:9)
+      at src/api/client.test.ts:910:34
+      at Object.<anonymous> (node_modules/expect/build/toThrowMatchers.js:74:11)
+      at Object.throwingMatcher [as toThrow] (node_modules/expect/build/index.js:320:21)
+      at toThrow (src/api/client.test.ts:910:41)
+      at toThrow (src/api/client.test.ts:910:41)
+
+  ● bundled local acceptance URL isolation › rejects http://10.0.2.2:4318
+
+    expect(received).toThrow(expected)
+
+    Expected substring: "Local acceptance requires"
+    Received message:   "Samgamam requires HTTPS outside local development."
+
+          154 |   }
+          155 |
+        > 156 |   throw new Error("Samgamam requires HTTPS outside local development.");
+              |         ^
+          157 | }
+          158 |
+          159 | export function resolveBaseUrl(override?: string | null): string {
+
+      at normalizeBaseUrl (src/api/client.ts:156:9)
+      at src/api/client.test.ts:910:34
+      at Object.<anonymous> (node_modules/expect/build/toThrowMatchers.js:74:11)
+      at Object.throwingMatcher [as toThrow] (node_modules/expect/build/index.js:320:21)
+      at toThrow (src/api/client.test.ts:910:41)
+      at toThrow (src/api/client.test.ts:910:41)
+
+  ● bundled local acceptance URL isolation › rejects http://127.0.0.1:4318@evil.test
+
+    expect(received).toThrow(expected)
+
+    Expected substring: "Local acceptance requires"
+    Received message:   "Samgamam requires HTTPS outside local development."
+
+          154 |   }
+          155 |
+        > 156 |   throw new Error("Samgamam requires HTTPS outside local development.");
+              |         ^
+          157 | }
+          158 |
+          159 | export function resolveBaseUrl(override?: string | null): string {
+
+      at normalizeBaseUrl (src/api/client.ts:156:9)
+      at src/api/client.test.ts:910:34
+      at Object.<anonymous> (node_modules/expect/build/toThrowMatchers.js:74:11)
+      at Object.throwingMatcher [as toThrow] (node_modules/expect/build/index.js:320:21)
+      at toThrow (src/api/client.test.ts:910:41)
+      at toThrow (src/api/client.test.ts:910:41)
+
+PASS src/screens/AuthTestScreen.test.ts
+PASS src/api/organizer-lifecycle.test.ts
+PASS src/services/notifications.test.ts
+PASS ./app.config.test.ts
+PASS src/api/group-lifecycle.test.ts
+PASS src/screens/OrganizerScreens.test.ts
+PASS src/auth/auth0.test.ts
+PASS src/startup/within.test.ts
+
+Test Suites: 1 failed, 14 passed, 15 total
+Tests:       5 failed, 171 passed, 176 total
+Snapshots:   0 total
+Time:        18.084 s, estimated 20 s
+Ran all test suites.
+Test results written to: docs/testing/evidence/phase-9/continuation/jest-final.json

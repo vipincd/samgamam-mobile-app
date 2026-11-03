@@ -1,0 +1,20 @@
+Repository: vipincd/samgamam-mobile-app
+Baseline: 8121869905b3d12599dce8b794436383b18336bf (origin/main)
+Working branch: feature/phase-9-mobile-release-acceptance
+Host: macOS ARM64
+Node: v24.22.1
+npm: 11.19.1
+Maestro CLI: 2.12.1
+Maestro MCP: no tool exposed to this Codex session; CLI fallback used
+Xcode: 27.2 (27B52)
+Android: emulator-5554, sdk_gphone64_arm64, Android 15, API 35
+Android compile/target SDK: 36; build tools 36.0.0; NDK 27.1.12297006
+Java: Temurin 21.0.3; Gradle worker toolchain Amazon Java 17.0.19
+Gradle: 8.14.3
+Apple target: iPhone 17 Pro, iOS Simulator 26.5, 4399342B-BBCF-4FD3-A868-889CA3EB7791
+Physical Android: none listed by adb devices -l
+Physical iPhone: none listed by xcrun xctrace list devices (host Mac only)
+Mock: loopback 127.0.0.1:4318
+Metro: loopback 127.0.0.1:8083
+Environment: EXPO_NO_DOTENV=1, EXPO_PUBLIC_API_URL=http://127.0.0.1:4318
+No production secrets loaded for native build/Metro execution.

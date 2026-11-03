@@ -1,0 +1,35 @@
+name: Manual release acceptance gate
+on:
+  workflow_dispatch:
+    inputs:
+      evidence:
+        description: Reviewed JSON matching the selected commit (see release-acceptance.json template)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release-acceptance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run security:audit
+      - run: npm run typecheck && npm run lint && npm test && npm run test:contracts
+      - name: Require reviewed evidence for every platform
+        env:
+          ACCEPTANCE_JSON: ${{ inputs.evidence }}
+        run: |
+          printf '%s' "$ACCEPTANCE_JSON" > "$RUNNER_TEMP/acceptance.json"
+          node scripts/testing/release-gate.cjs "$RUNNER_TEMP/acceptance.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reviewed-acceptance
+          path: ${{ runner.temp }}/acceptance.json
