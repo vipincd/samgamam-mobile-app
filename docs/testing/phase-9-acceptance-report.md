@@ -1,7 +1,7 @@
 # Samgamam Mobile Phase 9 acceptance — CI follow-up
 
 Updated November 4, 2026. Branch: `feature/phase-9-mobile-release-acceptance`; PR #3.
-**GitHub CI acceptance is pending verification of this fix. Do not equate local success with CI acceptance.**
+**GitHub CI passed on `fde0c8e31ce3ca544cafc5af1fddf0dff74e4e11` (Mobile CI and Android deterministic acceptance).**
 Production release remains blocked by physical-device, real authentication/push, accessibility,
 performance and distribution-signing verification. Local deterministic mocks only; no staging,
 production backend, real Auth0 account, paid API or real push service was exercised.
@@ -34,12 +34,12 @@ HTTP response, reverse mappings, crash/full logcat and last mock request history
 runtime was not changed for this fix. Local CI-script execution verified HTTP 200 with the exact
 mock service identity through emulator loopback.
 
-## Verification so far
+## Verification
 
 | Check | Result |
 |---|---|
 | Android full Maestro regression via CI script | 12 passed, 0 failed |
-| iOS full Maestro regression after Metro update | Running; original Phase 9 baseline was 12 passed, 0 failed |
+| iOS full Maestro regression after Metro update | 12 passed, 0 failed (`summary/ios-followup.xml`) |
 | Jest | 176 passed, 0 failed; 15 suites |
 | HTTP/security/asset contracts | 18 passed, 0 failed |
 | Typecheck | PASS |
@@ -47,13 +47,44 @@ mock service identity through emulator loopback.
 | Expo Doctor | 18/18 passed |
 | Android bundled Release APK | PASS, local acceptance signing |
 | iOS bundled Release Simulator build | PASS, no device distribution signing |
-| New GitHub Android workflow | Pending; must pass on latest pushed commit |
+| GitHub Android smoke (run 41824337801) | 2 passed, 0 failed |
+| GitHub Mobile CI (runs 41824337908, 41824330377) | PASS: high+ audit gate, Expo Doctor, typecheck, lint, Jest, contracts |
 
 Android target: dedicated `samgamam_phase9`, API 35 arm64 emulator-5556.
 iOS target: iPhone 17 Pro / iOS 26.5 Simulator. Maestro 2.12.1.
 No skipped/unexecuted flow is counted as a pass. Local raw logs are in ignored
 `artifacts/ci-investigation/`; final compact results are retained under
 `docs/testing/evidence/phase-9/summary/`.
+
+## GitHub CI on the fixed commit
+
+All runs below are for commit `fde0c8e31ce3ca544cafc5af1fddf0dff74e4e11`.
+
+| Workflow | Run | Conclusion |
+|---|---|---|
+| Android deterministic acceptance (pull_request) | [41824337801](https://github.com/vipincd/samgamam-mobile-app/actions/runs/41824337801) | success; JUnit 2 tests, 0 failures |
+| Mobile CI (pull_request) | [41824337908](https://github.com/vipincd/samgamam-mobile-app/actions/runs/41824337908) | success |
+| Mobile CI (push) | [41824330377](https://github.com/vipincd/samgamam-mobile-app/actions/runs/41824330377) | success |
+| Manual release acceptance gate | not run (`workflow_dispatch` only) | intentionally blocked pending release evidence |
+
+In the downloaded artifact, `01_startup` hit the `Quickstep isn't responding` launcher ANR again.
+The handler captured `emulator-quickstep-anr.png`, which shows only the OS dialog, and closed it.
+The flow then passed the unchanged `Search events` and `Profile` assertions. In `02_navigation`
+the conditional handler was skipped because no dialog appeared. The crash logcat buffer is empty.
+
+The fast gates were rerun locally on the same commit with the same results: Jest 176/176,
+contracts 18/18, typecheck, lint (0 errors, 3 warnings), Expo Doctor 18/18, and audit
+0 critical / 0 high / 68 moderate / 5 low. Native builds and Maestro were not rebuilt for
+this follow-up, so the results above rely on the existing local evidence and CI.
+
+## Review notes (non-blocking)
+
+- The acceptance APK is uploaded as a 14-day CI artifact. It is signed with the local
+  acceptance key, mock-only and fail-closed to `http://127.0.0.1:4318`. It must never be distributed.
+- Maestro CLI is installed by `curl | bash` with a pinned version but no checksum.
+  Pin the archive SHA-256 before release CI depends on it.
+- The iOS build keeps Expo's default `NSAllowsLocalNetworking=true` (`NSAllowsArbitraryLoads=false`).
+  Review this for the production Info.plist.
 
 ## Security remediation
 

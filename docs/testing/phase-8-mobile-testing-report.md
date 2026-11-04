@@ -30,4 +30,6 @@ fixtures and flows in Phase 9. The historical claim remains unverified for Samga
 
 Baseline independently executed: 12 Jest suites / 153 tests passed; typecheck passed;
 lint passed with three hook dependency warnings; security gate failed on unapproved advisories.
-See `evidence/phase-9/baseline-*.log` and the Phase 9 report for remediation and reruns.
+The raw `evidence/phase-9/baseline-*.log` files are preserved in historical commit
+`0b4888fa66d588e6716499d1dff8e6e96e12c5ca` and the ignored local archive.
+See [evidence-retention.md](evidence-retention.md) and the Phase 9 report for remediation and reruns.
