@@ -4,5 +4,9 @@ appId: com.samgamam.mobile
 - launchApp:
     clearState: true
 - extendedWaitUntil:
+    visible: "Search events|Quickstep isn't responding"
+    timeout: 60000
+- runFlow: dismiss-launcher-anr.yaml
+- extendedWaitUntil:
     visible: "Search events"
     timeout: 60000

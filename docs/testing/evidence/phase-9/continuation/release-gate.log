@@ -1,8 +1,0 @@
-Acceptance evidence must refer to HEAD
-androidEmulator: missing passed status, evidence or reviewer
-iosSimulator: missing passed status, evidence or reviewer
-physicalAndroid: missing passed status, evidence or reviewer
-physicalIPhone: missing passed status, evidence or reviewer
-security: missing passed status, evidence or reviewer
-accessibility: missing passed status, evidence or reviewer
-authenticatedJourneys: missing passed status, evidence or reviewer

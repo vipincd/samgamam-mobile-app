@@ -103,3 +103,17 @@ Bundled acceptance APKs use the generated debug signing key, never store credent
 The Android preparation script creates an ignored release-source overlay permitting HTTP
 only to 127.0.0.1. Remove that overlay before any distribution build. Neither acceptance
 artifact is approved for distribution. No real authentication or push service is exercised.
+
+## CI launcher ANR and retained diagnostics
+
+API 35 can display an OS-owned `Quickstep isn't responding` dialog over the already rendered
+Samgamam app. The launch helper captures and closes only that exact dialog via
+`android:id/aerr_close`, then still requires `Search events`. App ANRs and other dialogs are
+not dismissed. No smoke or journey assertions were removed.
+
+`android-ci.sh` verifies the mock on both host and emulator loopback, captures reverse mappings,
+crash/full logcat and mock history, and returns Maestro's failure status. A failed readiness check
+stops the run before UI tests. See [evidence-retention.md](evidence-retention.md) for retention.
+
+Metro 0.83.8 and its companion packages are pinned together to remove the vulnerable image-size
+transitive dependency. The security gate allows no high/critical exceptions.

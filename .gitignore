@@ -42,3 +42,9 @@ yarn-error.*
 
 # Local mobile evidence and generated builds
 artifacts/
+
+# Raw acceptance evidence belongs in retained CI artifacts, not source diffs.
+docs/testing/evidence/**
+!docs/testing/evidence/phase-9/
+!docs/testing/evidence/phase-9/summary/
+!docs/testing/evidence/phase-9/summary/**

@@ -1,8 +1,0 @@
-
-> mobile-app@1.0.0 typecheck
-> tsc --noEmit
-
-src/components/ui.test.tsx(3,29): error TS7016: Could not find a declaration file for module 'react-test-renderer'. '/Users/vidas/dev/projects/samgamammobile/node_modules/react-test-renderer/index.js' implicitly has an 'any' type.
-  Try `npm i --save-dev @types/react-test-renderer` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-test-renderer';`
-
-
