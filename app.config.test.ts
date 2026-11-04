@@ -126,11 +126,26 @@ describe('App Environment and Auth0 configuration', () => {
       ]);
     });
 
-    it('omits Auth0 plugin in development when unconfigured', () => {
+    it('supplies inert native placeholders without enabling unconfigured development login', () => {
       process.env = { ...originalEnvironment, APP_ENV: 'development' };
       const unconfigured = appConfig({ config: {} } as never);
       expect(unconfigured.plugins).toContain('expo-secure-store');
-      expect(unconfigured.plugins).not.toContainEqual(expect.arrayContaining(['react-native-auth0']));
+      expect(unconfigured.plugins).toContainEqual(['react-native-auth0', { customScheme: 'samgamam', domain: 'unconfigured.invalid' }]);
+      expect(readOptionalAuth0Configuration(process.env)).toBeUndefined();
     });
+  });
+});
+
+describe('local acceptance build configuration', () => {
+  const local = { EXPO_PUBLIC_LOCAL_ACCEPTANCE: '1', EXPO_PUBLIC_API_URL: 'http://127.0.0.1:4318' };
+  it('accepts only the local mock configuration', () => {
+    expect(validateAppEnvironment(local).apiUrl).toBe(local.EXPO_PUBLIC_API_URL);
+  });
+  it.each([
+    { APP_ENV: 'production' },
+    { EXPO_PUBLIC_API_URL: 'https://samgamam.com' },
+    { EXPO_PUBLIC_AUTH0_DOMAIN: 'tenant.example.invalid' },
+  ])('rejects unsafe acceptance configuration %j', (override) => {
+    expect(() => validateAppEnvironment({ ...local, ...override })).toThrow('Local acceptance requires');
   });
 });

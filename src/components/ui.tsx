@@ -38,6 +38,7 @@ export function Surface(props: {
 }
 
 export function Button(props: {
+  testID?: string;
   accessibilityLabel?: string;
   accessibilityRole?: "button";
   accessibilityState?: { disabled?: boolean };
@@ -53,6 +54,7 @@ export function Button(props: {
 
   return (
     <Pressable
+      testID={props.testID}
       accessibilityLabel={props.accessibilityLabel ?? props.label}
       accessibilityRole={props.accessibilityRole ?? "button"}
       accessibilityState={props.accessibilityState ?? (props.disabled !== undefined ? { disabled: props.disabled } : undefined)}
@@ -94,6 +96,7 @@ export function Field(
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
         autoCapitalize="none"
         autoCorrect={false}
         placeholderTextColor={theme.colors.muted}

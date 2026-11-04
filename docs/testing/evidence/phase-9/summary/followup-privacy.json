@@ -1,0 +1,9 @@
+{
+  "androidMicrophoneAbsent": true,
+  "iosMicrophoneAbsent": true,
+  "iosCameraPurpose": "Allow Samgamam to access your camera to scan ticket QR codes.",
+  "iosTransportSecurity": {
+    "NSAllowsArbitraryLoads": false,
+    "NSAllowsLocalNetworking": true
+  }
+}

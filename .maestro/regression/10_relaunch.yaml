@@ -1,0 +1,16 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- tapOn: "Groups"
+- assertVisible: "Community circles"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Search events"
+    timeout: 60000
+- assertVisible: "Profile"
+- takeScreenshot: relaunch

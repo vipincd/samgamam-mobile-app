@@ -67,6 +67,11 @@ export function validateAppEnvironment(
   const audience = environment.EXPO_PUBLIC_AUTH0_AUDIENCE?.trim();
   const apiUrl = environment.EXPO_PUBLIC_API_URL?.trim();
 
+  if (environment.EXPO_PUBLIC_LOCAL_ACCEPTANCE === '1' &&
+      (isProd || apiUrl !== 'http://127.0.0.1:4318' || domain || clientId || audience)) {
+    throw new Error('Local acceptance requires loopback API, no Auth0 configuration, and a non-production environment.');
+  }
+
   if (isProd) {
     if (!domain || !clientId || !audience) {
       throw new Error(
@@ -127,14 +132,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       ...(base.plugins ?? []),
-      ...(auth0
-        ? [
-            [
-              'react-native-auth0',
-              { customScheme: AUTH0_CUSTOM_SCHEME, domain: auth0.domain },
-            ] as [string, Record<string, string>],
-          ]
-        : []),
+      // The native Auth0 library requires manifest placeholders even when login
+      // is not configured. The reserved .invalid domain cannot reach a tenant.
+      ['react-native-auth0', {
+        customScheme: AUTH0_CUSTOM_SCHEME,
+        domain: auth0?.domain ?? 'unconfigured.invalid',
+      }],
     ],
   };
 };

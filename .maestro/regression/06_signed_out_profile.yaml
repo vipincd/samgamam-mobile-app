@@ -1,0 +1,14 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- tapOn: "Profile"
+- scrollUntilVisible:
+    element: "Sign in with Auth0"
+    direction: DOWN
+- assertVisible: "You’re currently signed out"
+- assertVisible: "Sign in with Auth0"
+- takeScreenshot: signed-out-profile

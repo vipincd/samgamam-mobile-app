@@ -11,6 +11,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
 
@@ -40,5 +41,18 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Run unit tests
-        run: npm test
+      - run: mkdir -p artifacts
+
+      - name: Run unit, component and deterministic client integration tests
+        run: npm test -- --ci --json --outputFile=artifacts/jest.json
+
+      - name: Run HTTP contracts and security gate tests
+        run: npm run test:contracts
+
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-test-evidence
+          path: artifacts/
+          retention-days: 14

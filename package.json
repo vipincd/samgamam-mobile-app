@@ -4,14 +4,17 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand --testPathIgnorePatterns=.*real-backend.*",
     "test:integration": "jest --runInBand src/api/client-real-backend.test.ts",
-    "security:audit": "node scripts/security-audit.cjs"
+    "security:audit": "node scripts/security-audit.cjs",
+    "test:contracts": "node --test tests/api/*.test.cjs tests/security/*.test.cjs",
+    "test:maestro": "node scripts/testing/run-maestro.mjs",
+    "test:mock": "node scripts/testing/mock-api.cjs"
   },
   "dependencies": {
     "@expo-google-fonts/manrope": "^0.4.2",
@@ -38,21 +41,52 @@
     "eslint": "^9.39.5",
     "eslint-config-expo": "~10.0.0",
     "jest-expo": "~54.0.18",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "@types/react-test-renderer": "^19.1.0"
   },
   "jest": {
     "preset": "jest-expo",
     "setupFiles": [
       "<rootDir>/jest.setup.js"
-    ]
+    ],
+    "transform": {
+      "\\.[jt]sx?$": [
+        "babel-jest",
+        {
+          "caller": {
+            "name": "metro",
+            "bundler": "metro",
+            "platform": "ios",
+            "preserveEnvVars": true
+          },
+          "presets": [
+            "babel-preset-expo"
+          ]
+        }
+      ]
+    }
   },
   "private": true,
   "overrides": {
-    "shell-quote": "^1.10.0",
+    "shell-quote": "^1.12.0",
     "brace-expansion": "^1.1.21",
-    "ws": "^7.5.11",
     "postcss": "^8.5.10",
     "@babel/core": "7.29.6",
-    "fast-uri": "3.1.8"
+    "fast-uri": "3.1.8",
+    "react-native": "$react-native",
+    "metro": "0.83.8",
+    "metro-babel-transformer": "0.83.8",
+    "metro-cache": "0.83.8",
+    "metro-cache-key": "0.83.8",
+    "metro-config": "0.83.8",
+    "metro-core": "0.83.8",
+    "metro-file-map": "0.83.8",
+    "metro-minify-terser": "0.83.8",
+    "metro-resolver": "0.83.8",
+    "metro-runtime": "0.83.8",
+    "metro-source-map": "0.83.8",
+    "metro-symbolicate": "0.83.8",
+    "metro-transform-plugins": "0.83.8",
+    "metro-transform-worker": "0.83.8"
   }
 }
