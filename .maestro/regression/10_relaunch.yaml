@@ -10,6 +10,10 @@ appId: com.samgamam.mobile
 - stopApp
 - launchApp
 - extendedWaitUntil:
+    visible: "Search events|Quickstep isn't responding"
+    timeout: 60000
+- runFlow: ../dismiss-launcher-anr.yaml
+- extendedWaitUntil:
     visible: "Search events"
     timeout: 60000
 - assertVisible: "Profile"

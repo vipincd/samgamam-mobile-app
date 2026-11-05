@@ -7,6 +7,27 @@ export const IOS_BUNDLE_IDENTIFIER = 'com.samgamam.mobile';
 export const ANDROID_PACKAGE = 'com.samgamam.mobile';
 export const CANONICAL_PRODUCTION_API_URL = 'https://samgamam.com';
 export const ALLOWED_PRODUCTION_HOSTS = new Set(['samgamam.com', 'api.samgamam.com']);
+export const BLOCKED_ANDROID_PERMISSIONS = [
+  'android.permission.RECORD_AUDIO',
+  'android.permission.SYSTEM_ALERT_WINDOW',
+  'android.permission.READ_EXTERNAL_STORAGE',
+  'android.permission.WRITE_EXTERNAL_STORAGE',
+] as const;
+
+export type AppTransportSecurityConfig = {
+  NSAllowsArbitraryLoads: false;
+  NSAllowsLocalNetworking: boolean;
+};
+
+export function resolveAppTransportSecurity(
+  environment: PublicEnvironment = process.env,
+): AppTransportSecurityConfig {
+  const isProd = isProductionEnvironment(environment);
+  return {
+    NSAllowsArbitraryLoads: false,
+    NSAllowsLocalNetworking: !isProd,
+  };
+}
 
 type PublicEnvironment = Record<string, string | undefined>;
 
@@ -125,10 +146,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...base.android,
       package: ANDROID_PACKAGE,
+      blockedPermissions: Array.from(
+        new Set([
+          ...(base.android?.blockedPermissions ?? []),
+          ...BLOCKED_ANDROID_PERMISSIONS,
+        ]),
+      ),
     },
     ios: {
       ...base.ios,
       bundleIdentifier: IOS_BUNDLE_IDENTIFIER,
+      infoPlist: {
+        ...base.ios?.infoPlist,
+        NSAppTransportSecurity: resolveAppTransportSecurity(process.env),
+      },
     },
     plugins: [
       ...(base.plugins ?? []),
