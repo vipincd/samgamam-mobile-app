@@ -1,6 +1,8 @@
 import appConfig, {
+  BLOCKED_ANDROID_PERMISSIONS,
   CANONICAL_PRODUCTION_API_URL,
   readOptionalAuth0Configuration,
+  resolveAppTransportSecurity,
   validateAppEnvironment,
   validateProductionApiUrl,
 } from './app.config';
@@ -147,5 +149,81 @@ describe('local acceptance build configuration', () => {
     { EXPO_PUBLIC_AUTH0_DOMAIN: 'tenant.example.invalid' },
   ])('rejects unsafe acceptance configuration %j', (override) => {
     expect(() => validateAppEnvironment({ ...local, ...override })).toThrow('Local acceptance requires');
+  });
+});
+
+describe('iOS App Transport Security and Local Networking', () => {
+  const originalEnvironment = process.env;
+
+  afterEach(() => {
+    process.env = originalEnvironment;
+  });
+
+  it('disables NSAllowsLocalNetworking and keeps NSAllowsArbitraryLoads false in production', () => {
+    const ats = resolveAppTransportSecurity({ APP_ENV: 'production' });
+    expect(ats).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: false,
+    });
+  });
+
+  it('enables NSAllowsLocalNetworking for development while keeping NSAllowsArbitraryLoads false', () => {
+    const ats = resolveAppTransportSecurity({ APP_ENV: 'development' });
+    expect(ats).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: true,
+    });
+  });
+
+  it('enables NSAllowsLocalNetworking for local acceptance while keeping NSAllowsArbitraryLoads false', () => {
+    const ats = resolveAppTransportSecurity({
+      EXPO_PUBLIC_LOCAL_ACCEPTANCE: '1',
+      EXPO_PUBLIC_API_URL: 'http://127.0.0.1:4318',
+    });
+    expect(ats).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: true,
+    });
+  });
+
+  it('injects ATS into the generated Expo iOS configuration for production', () => {
+    process.env = { ...originalEnvironment, ...completeEnvironment, APP_ENV: 'production' };
+    const config = appConfig({ config: {} } as never);
+    const ats = config.ios?.infoPlist?.NSAppTransportSecurity as {
+      NSAllowsArbitraryLoads: boolean;
+      NSAllowsLocalNetworking: boolean;
+    };
+    expect(ats.NSAllowsArbitraryLoads).toBe(false);
+    expect(ats.NSAllowsLocalNetworking).toBe(false);
+  });
+
+  it('injects ATS into the generated Expo iOS configuration for development', () => {
+    process.env = { ...originalEnvironment, APP_ENV: 'development' };
+    const config = appConfig({ config: {} } as never);
+    const ats = config.ios?.infoPlist?.NSAppTransportSecurity as {
+      NSAllowsArbitraryLoads: boolean;
+      NSAllowsLocalNetworking: boolean;
+    };
+    expect(ats.NSAllowsArbitraryLoads).toBe(false);
+    expect(ats.NSAllowsLocalNetworking).toBe(true);
+  });
+});
+
+describe('Android permission hardening', () => {
+  it('includes all required blocked permissions in the Expo config', () => {
+    const config = appConfig({ config: {} } as never);
+    const blocked = config.android?.blockedPermissions ?? [];
+    for (const permission of BLOCKED_ANDROID_PERMISSIONS) {
+      expect(blocked).toContain(permission);
+    }
+    expect(blocked).toContain('android.permission.RECORD_AUDIO');
+    expect(blocked).toContain('android.permission.SYSTEM_ALERT_WINDOW');
+    expect(blocked).toContain('android.permission.READ_EXTERNAL_STORAGE');
+    expect(blocked).toContain('android.permission.WRITE_EXTERNAL_STORAGE');
+  });
+
+  it('ensures camera is the only requested dangerous permission in android.permissions', () => {
+    const config = appConfig({ config: {} } as never);
+    expect(config.android?.permissions).toEqual(['android.permission.CAMERA']);
   });
 });
