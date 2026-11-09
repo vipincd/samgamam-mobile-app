@@ -22,6 +22,64 @@ Store Connect action was used. Every simulator result below is **simulated again
 | Push | `expo-notifications`; `aps-environment = development` entitlement from the plugin; Expo push token sent to `POST /api/v1/devices/register` |
 | Signing | None configured; simulator builds use `CODE_SIGNING_ALLOWED=NO` |
 
+## Remediation round 2 (review 5822278946)
+
+Base `de7e042182e0d6666bcabc811162c1d5881135f0`; `main` unchanged at `f5e11b4`.
+
+| Finding | Status | Change |
+|---|---|---|
+| P1 shared mock on `127.0.0.1:4318` | **BLOCKED on Developer C** | Strategy agreed below; no iOS-side lock implemented, so no Maestro run in this round |
+| P2 deep links accept extra segments, unsupported schemes, encoded paths | Fixed (D5) | `src/services/deep-links.ts`, 33 new cases in `notifications.test.ts` |
+| P2 shared code needs Android review | Open | Updated matrix below; Developer C sign-off still required |
+| Session refresh (D1) reverification | Verified, no code change | Two new tests (#8 concurrency, #9 no second retry) |
+| Release blockers | Unchanged, documented | See the end of this report |
+
+**D5 — deep-link parser fails open and diverges from the device runtime.** The custom-scheme branch
+used `.split('/').filter(Boolean)` and read only the first two segments, so
+`samgamam://event/qa-event/extra`, `samgamam:///event/qa-event` and `samgamam://event//qa-event` all opened
+`qa-event`. Web links accepted `http://`, any port and userinfo, and relative paths without a leading `/`.
+The web branch also relied on `new URL()`, which runs as WHATWG `URL` in Jest but as React Native's
+regex-based `URL` (`react-native/Libraries/Blob/URL.js`) on device. They disagree: WHATWG normalizes
+`/events/%2e%2e/groups/qa-group` to group `qa-group`, and RN's `hostname` regex skips anything up to
+an `@` (for example, `https://evil.example/@samgamam.com/…` reports host `samgamam.com`). Unit tests therefore did not
+describe device behaviour. The parser now uses explicit patterns and never calls `URL`: a link resolves only when it is
+`samgamam://route[/id]` (scheme case-insensitive) or `https://samgamam.com|www.samgamam.com/[locale/]route[/id]`
+(host case-insensitive, no port, no userinfo) or an absolute path `/[locale/]route[/id]`, with at most
+one trailing slash and optional query/fragment. Everything else is `unknown`, which neither `App.tsx` nor
+`ProfileScreen` navigates on, so no API request is made. Evidence: the new tests run against the previous
+parser fail 15 of 56 cases (including the `%2e%2e` and extra-segment cases); all 56 pass after the change.
+Valid existing links (`samgamam://event/<id>`, `/en/events/<id>`, `https://www.samgamam.com/events/<uuid>`) are unchanged.
+**Behaviour change:** `http://samgamam.com/...` links are now rejected; the app has no cleartext web-link source.
+
+**Session refresh (D1) reverified** in `src/auth/session.test.ts`: explicit `Authorization` kept and
+the Auth0 token reaches `/v1/auth/session` (#7); the stored backend token is replaced by the exchanged one (#7);
+a failed Auth0 refresh ends in `expired` with the token cleared, no loop (#6); two concurrent 401s share
+one `getCredentials(true)` call and one exchange (#8, new); a 401 after a successful refresh is not retried a
+second time and clears the stored token, three requests total (#9, new); logout clears Auth0 and the stored token (#4).
+Auth protocol and Auth0 configuration unchanged. Real-tenant refresh remains BLOCKED.
+
+### Shared mock isolation — agreed strategy and dependency
+
+The app, `app.config.ts` and `src/api/client.ts` are fail-closed to exactly `http://127.0.0.1:4318` for
+acceptance builds, and `prepare-android-acceptance.mjs` enforces the same URL. Per-platform ports would
+loosen that check in security-sensitive code, so the strategy is **Option A, serialized execution**:
+
+1. One lock directory shared by every worktree: `$(git rev-parse --git-common-dir)/samgamam-acceptance-4318.lock`
+   (all worktrees share `samgamammobile/.git`), created atomically with `mkdir`.
+2. `owner.json` inside: `runId` (random), `platform`, runner `pid` plus its process start time, worktree path, start time.
+3. Taken before the mock starts and held until the mock has exited and evidence is copied.
+4. Already held → fail with the owner's details, touch nothing. A dead owner → report it as stale and stop.
+   Only a human removes a stale lock; no runner deletes a lock whose `runId` is not its own.
+5. The runner spawns the mock itself, passes `runId` through the environment, and checks `/__mock/health`
+   returns that `runId` before any reset or flow. A foreign listener on 4318 → fail, never kill.
+6. Cleanup (EXIT/INT/TERM trap) signals only the spawned child handle, then removes the lock only if `owner.json` still has its `runId`.
+
+Developer C owns `android-ci.sh` and the shared `mock-api.cjs`. The lock helper should live in a
+shared script both runners call. Until it lands, **iOS and Android acceptance must not run on this host at
+the same time**. In this round iOS Maestro was **NOT RUN**. When checked (Nov 9), nothing was listening on 4318,
+and a Maestro iOS driver (`xcodebuild test-without-building`, PID 64446) from another session was on the simulator; it was left alone.
+iOS follow-up once the helper exists: run iOS Maestro inside the same lock wrapper (the iOS flows already use `.maestro/scripts/reset.js`).
+
 ## Defects found and fixed
 
 | # | Defect | Evidence | Fix |
@@ -36,14 +94,21 @@ Store Connect action was used. Every simulator result below is **simulated again
 | Shared file | Reason | Android impact | iOS impact | API impact | Tests required |
 |---|---|---|---|---|---|
 | `src/api/client.ts` | D1 | Same fix applies (bug was platform-independent) | Fix | None: request now carries the token the backend already expects | Jest (done); real-tenant refresh on both platforms |
-| `src/services/deep-links.ts` | D2 | Links with non-slug IDs or foreign hosts now ignored on Android too | Fix | None | Jest (done); Android deep-link smoke |
+| `src/services/deep-links.ts` | D2, D5 | Same parser for Android intents and push taps: extra segments, `http://`, ports, userinfo, relative paths without `/` now ignored | Fix | None | Jest (done); Android `adb shell am start -d samgamam://event/qa-event` smoke and one rejected link |
 | `app.json` | D3 | None (only an iOS Info.plist key) | Removes key | None | Android prebuild diff (not run here) |
 | `App.tsx` | D4 | Tab labels capped at 1.3× on Android too | Fix | None | TalkBack/large-font check on Android |
 
-Developer C's worktree (`feature/mobile-android-readiness`) had no commits or edits when checked,
-so no shared file was being edited in parallel. **Developer C approval is required** for all four
-files before merge. Open PR #5 also edits `app.json` and PR #2 edits `App.tsx`; expect small
-merge conflicts.
+**Potential conflicts (checked with `git merge-tree`, no branch modified):** PR #6 + PR #7, PR #6 + PR #5
+and PR #7 + PR #5 each merge without conflicts. The combined PR #6 + PR #7 `app.json` keeps all four
+Android `blockedPermissions` and `["expo-secure-store", { "faceIDPermission": false }]`. PR #2 (Expo 58
+upgrade) touches `App.tsx` and `app.json` and was not combined here.
+
+**Recommended integration sequence:** (1) Developer C lands the shared lock and safe mock ownership on PR #7;
+(2) Developer C reviews and approves the four shared files here; (3) merge PR #7, then rebase PR #6 and
+rerun Jest, contracts, both prebuilds and serialized Maestro on the combined head; (4) PR #5, then PR #2 last,
+since it changes SDK versions.
+
+**Developer C approval is required** for all four files before merge.
 
 ## Native configuration and security review
 
@@ -155,6 +220,18 @@ acceptance build its own mock port, and avoid `kill -9` on the port in shared sc
 | iOS Release simulator build | PASS (arm64) |
 | Maestro iOS, shared smoke + regression | 12/12 passed (simulated) |
 | Maestro iOS-only deep-link flows | 2/2 passed (simulated) |
+
+Round 2 (macOS host, Node 24, Jest on Node — not the device runtime):
+
+| Check | Exit | Passed | Failed | Skipped | Blocked |
+|---|---|---|---|---|---|
+| `npm run typecheck` | 0 | — | 0 errors | — | — |
+| `EXPO_NO_DOTENV=1 npm run lint` | 0 | — | 0 errors, 3 pre-existing warnings | — | — |
+| `npm test -- --ci` | 0 | 213 (15 suites; 35 new) | 0 | 0 | — |
+| `npm run test:contracts` | 0 | 18 | 0 | 0 | — |
+| `npm run security:audit` | 0 | gate passed: critical 0, high 0, moderate 26, low 7 | — | — | — |
+| iOS simulator rebuild | — | — | — | NOT RUN: JS-only change, no native config touched | — |
+| Maestro (12 shared + 2 iOS) | — | — | — | — | BLOCKED on shared lock (Developer C) |
 
 ## Release-readiness blockers (not fixed here)
 

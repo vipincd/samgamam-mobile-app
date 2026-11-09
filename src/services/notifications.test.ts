@@ -103,6 +103,64 @@ describe("Deep-Link & Push Payload Parser", () => {
     expect(parseNotificationData({ entityType: "event", entityId: "../me" })).toEqual({ type: "unknown" });
   });
 
+  it("keeps valid links with trailing slashes, queries, fragments and mixed-case hosts", () => {
+    const event = { type: "event", id: "qa-event" };
+    expect(parseDeepLinkUrl("samgamam://event/qa-event/")).toEqual(event);
+    expect(parseDeepLinkUrl("samgamam://event/qa-event?utm_source=push#top")).toEqual(event);
+    expect(parseDeepLinkUrl("SAMGAMAM://event/qa-event")).toEqual(event);
+    expect(parseDeepLinkUrl("https://SamGamam.COM/en/events/qa-event?ref=mail")).toEqual(event);
+    expect(parseDeepLinkUrl("HTTPS://www.samgamam.com/events/qa-event#details")).toEqual(event);
+    expect(parseDeepLinkUrl("/de/groups/qa-group/")).toEqual({ type: "group", id: "qa-group" });
+    expect(parseDeepLinkUrl("/events/qa-event?x=1")).toEqual(event);
+    expect(parseDeepLinkUrl("samgamam://events/")).toEqual({ type: "discover" });
+  });
+
+  it.each([
+    ["extra custom-scheme segment", "samgamam://event/qa-event/extra"],
+    ["nested custom-scheme path", "samgamam://group/qa-group/discussions/1"],
+    ["extra segment on a tab route", "samgamam://notifications/1"],
+    ["empty custom-scheme segment", "samgamam://event//qa-event"],
+    ["triple-slash custom scheme", "samgamam:///event/qa-event"],
+    ["empty identifier via double slash", "/events//"],
+    ["extra web path segment", "https://samgamam.com/events/qa-event/edit"],
+    ["nested locale path", "/en/de/events/qa-event"],
+    ["encoded slash", "samgamam://event/qa%2Fevent"],
+    ["encoded slash on web", "https://samgamam.com/events/qa%2Fevent"],
+    ["encoded dot segments", "https://samgamam.com/events/%2e%2e/groups/qa-group"],
+    ["literal dot segments", "/events/../groups/qa-group"],
+    ["malformed percent encoding", "samgamam://event/%E0%A4%A"],
+    ["unicode identifier", "samgamam://event/évènement"],
+    ["whitespace inside identifier", "samgamam://event/qa event"],
+    ["cleartext http", "http://samgamam.com/events/qa-event"],
+    ["unexpected port", "https://samgamam.com:8443/events/qa-event"],
+    ["explicit default port", "https://samgamam.com:443/events/qa-event"],
+    ["userinfo before approved host", "https://user:pass@samgamam.com/events/qa-event"],
+    ["approved host in userinfo", "https://samgamam.com@evil.example/events/qa-event"],
+    ["approved host in foreign path", "https://evil.example/@samgamam.com/events/qa-event"],
+    ["trailing-dot host", "https://samgamam.com./events/qa-event"],
+    ["internationalised lookalike host", "https://ѕamgamam.com/events/qa-event"],
+    ["punycode host", "https://xn--amgamam-9ld.com/events/qa-event"],
+    ["backslash host confusion", "https://samgamam.com\\@evil.example/events/qa-event"],
+    ["protocol-relative URL", "//samgamam.com/events/qa-event"],
+    ["relative path without leading slash", "events/qa-event"],
+    ["unsupported scheme", "javascript:alert(1)//events/qa-event"],
+    ["foreign custom scheme", "otherapp://event/qa-event"],
+    ["ftp scheme", "ftp://samgamam.com/events/qa-event"],
+    ["bare approved host", "https://samgamam.com"],
+  ])("fails closed on %s", (_case, url) => {
+    expect(parseDeepLinkUrl(url)).toEqual({ type: "unknown", raw: url });
+  });
+
+  it("applies the same validation to notification payload URLs", () => {
+    expect(parseNotificationData({ url: "samgamam://event/qa-event" })).toEqual({ type: "event", id: "qa-event" });
+    expect(parseNotificationData({ targetUrl: "/en/groups/qa-group" })).toEqual({ type: "group", id: "qa-group" });
+    expect(parseNotificationData({ url: "samgamam://event/qa-event/extra" }).type).toBe("unknown");
+    expect(parseNotificationData({ targetUrl: "https://evil.example/events/qa-event" }).type).toBe("unknown");
+    expect(parseNotificationData({ entityType: "group", entityId: "qa%2Fgroup" })).toEqual({ type: "unknown" });
+    // An invalid structured ID never falls back to a URL that might resolve.
+    expect(parseNotificationData({ entityType: "event", entityId: "../me", url: "samgamam://event/qa-event" })).toEqual({ type: "unknown" });
+  });
+
   it("parses structured notification payloads with entityType and entityId", () => {
     expect(parseNotificationData({ entityType: "event", entityId: "event-push-1" })).toEqual({
       type: "event",
