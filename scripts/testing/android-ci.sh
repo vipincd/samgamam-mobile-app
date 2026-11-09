@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p artifacts
+lsof -ti :4318 | xargs kill -9 2>/dev/null || true
 node scripts/testing/mock-api.cjs > artifacts/mock.log 2>&1 &
 mock_pid=$!
 serial=${ANDROID_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}

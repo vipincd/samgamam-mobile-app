@@ -8,6 +8,7 @@ function createMockServer() {
   let mode = 'success'; let rsvp = null; let loggedIn = false;
   const history = [];
   const server = http.createServer(async (req, res) => {
+    console.log(`[MOCK] ${req.method} ${req.url} (current_mode=${mode})`);
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
     const data = (value) => send(200, { data: value, meta: { requestId: 'qa-request' }, page: { hasNextPage: false, nextCursor: null } });

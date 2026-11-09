@@ -4,7 +4,7 @@ appId: com.samgamam.mobile
 # Match that exact OS-owned dialog; never dismiss an ANR belonging to Samgamam.
 - runFlow:
     when:
-      visible: "Quickstep isn't responding"
+      visible: "Quickstep isn't responding|System UI isn't responding"
     commands:
       - takeScreenshot: emulator-quickstep-anr
       - tapOn:

@@ -7,7 +7,6 @@ appId: com.samgamam.mobile
 - runFlow: ../launch.yaml
 - tapOn: "Search events"
 - inputText: "nomatch"
-- hideKeyboard
 - tapOn: "Search"
 - scrollUntilVisible:
     element: "A new moment is around the corner"
