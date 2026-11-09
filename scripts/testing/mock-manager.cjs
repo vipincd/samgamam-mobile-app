@@ -4,10 +4,27 @@ const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, execSync } = require('node:child_process');
 
 const DEFAULT_PORT = 4318;
-const DEFAULT_LOCK_PATH = process.env.ACCEPTANCE_LOCK_PATH || '/tmp/samgamam-acceptance.lock';
+
+function getDefaultLockPath() {
+  if (process.env.ACCEPTANCE_LOCK_PATH) {
+    return process.env.ACCEPTANCE_LOCK_PATH;
+  }
+  try {
+    const gitCommonDir = execSync('git rev-parse --git-common-dir', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (gitCommonDir && fs.existsSync(gitCommonDir)) {
+      return path.join(gitCommonDir, 'samgamam-acceptance-4318.lock');
+    }
+  } catch {}
+  return '/tmp/samgamam-acceptance-4318.lock';
+}
+
+const DEFAULT_LOCK_PATH = getDefaultLockPath();
 
 function parseMetadata(content) {
   try {
@@ -22,7 +39,7 @@ function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (err) {
+  } catch {
     return false;
   }
 }
@@ -82,7 +99,14 @@ async function queryMockHealth(port = DEFAULT_PORT) {
   });
 }
 
-function acquireLock({ platform = 'android', runId, lockPath = DEFAULT_LOCK_PATH }) {
+async function acquireLock({
+  platform = 'android',
+  runId,
+  lockPath = getDefaultLockPath(),
+  runnerPid,
+  port = DEFAULT_PORT,
+  allowStaleReclaim = false,
+}) {
   if (!runId) throw new Error('runId is required to acquire acceptance lock');
 
   if (fs.existsSync(lockPath)) {
@@ -90,35 +114,62 @@ function acquireLock({ platform = 'android', runId, lockPath = DEFAULT_LOCK_PATH
     const existing = parseMetadata(content);
 
     if (!existing || typeof existing !== 'object' || !existing.runId) {
-      // AND-ISO-09: Stale or malformed ownership metadata -> Fail safely
+      // AND-ISO-09 / LOCK-08: Stale or malformed ownership metadata -> Fail safely
       throw new Error(
         `[LOCK ERROR] Lock at ${lockPath} contains malformed or unreadable metadata. Refusing to guess or overwrite foreign state. Exiting fail-closed.`,
       );
     }
 
-    if (existing.pid && isPidAlive(existing.pid)) {
+    if (existing.runId === runId) {
+      // Already owned by this exact session
+      return { acquired: true, lockPath, runId, existing: true };
+    }
+
+    // Inspect whether existing lock owner is actively running
+    const activeMockPid = existing.mockPid || existing.pid;
+    const mockAlive = activeMockPid ? isPidAlive(activeMockPid) : false;
+    const runnerAlive = existing.runnerPid ? isPidAlive(existing.runnerPid) : false;
+
+    // Verify through HTTP health probe
+    const health = await queryMockHealth(existing.port || port);
+    const mockVerified =
+      health?.status === 200 &&
+      health?.data?.service === 'samgamam-acceptance-mock' &&
+      health?.data?.runId === existing.runId;
+
+    if (mockAlive || runnerAlive || mockVerified) {
       throw new Error(
-        `[LOCK BUSY] Acceptance suite lock is currently held by ${existing.platform || 'foreign'} session (PID: ${existing.pid}, runId: ${existing.runId}, started: ${existing.startedAt}). Refusing to terminate or interfere with foreign run. Exiting fail-closed.`,
+        `[LOCK BUSY] Acceptance suite lock is currently held by ${existing.platform || 'foreign'} session (PID: ${activeMockPid || existing.runnerPid || 'unknown'}, runId: ${existing.runId}, started: ${existing.startedAt || existing.createdAt}). Refusing to terminate or interfere with foreign run. Exiting fail-closed.`,
       );
     }
 
-    // Process is dead: stale lock. Remove safely.
-    console.warn(`[LOCK] Clearing stale lock file from exited PID ${existing.pid} (runId: ${existing.runId}).`);
-    try {
-      fs.unlinkSync(lockPath);
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
+    // Both runner and mock are not alive and health probe failed
+    if (allowStaleReclaim) {
+      console.warn(`[LOCK] Reclaiming verified stale lock file from inactive runId ${existing.runId}.`);
+      try {
+        fs.unlinkSync(lockPath);
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+      }
+    } else {
+      throw new Error(
+        `[LOCK STALE] Stale acceptance lock detected at ${lockPath} from inactive session (runId: ${existing.runId}, platform: ${existing.platform || 'unknown'}, PID: ${activeMockPid || 'unknown'}). Refusing automatic deletion without explicit operator confirmation. Exiting fail-closed.`,
+      );
     }
   }
 
   const payload = JSON.stringify({
     platform,
     runId,
-    pid: process.pid,
+    runnerPid: runnerPid || process.pid,
+    mockPid: null,
+    port,
     startedAt: new Date().toISOString(),
-  });
+    createdAt: new Date().toISOString(),
+  }, null, 2);
 
   try {
+    fs.mkdirSync(path.dirname(path.resolve(lockPath)), { recursive: true });
     fs.writeFileSync(lockPath, payload, { flag: 'wx' });
   } catch (err) {
     if (err.code === 'EEXIST') {
@@ -132,8 +183,21 @@ function acquireLock({ platform = 'android', runId, lockPath = DEFAULT_LOCK_PATH
   return { acquired: true, lockPath, runId };
 }
 
-function releaseLock({ runId, lockPath = DEFAULT_LOCK_PATH }) {
+function updateLockMetadata({ lockPath = getDefaultLockPath(), runId, updates }) {
   if (!fs.existsSync(lockPath)) return false;
+  try {
+    const existing = parseMetadata(fs.readFileSync(lockPath, 'utf8'));
+    if (!existing || existing.runId !== runId) return false;
+    const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(lockPath, JSON.stringify(updated, null, 2), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function releaseLock({ runId, lockPath = getDefaultLockPath() }) {
+  if (!fs.existsSync(lockPath)) return true;
 
   const content = fs.readFileSync(lockPath, 'utf8');
   const existing = parseMetadata(content);
@@ -143,14 +207,14 @@ function releaseLock({ runId, lockPath = DEFAULT_LOCK_PATH }) {
       fs.unlinkSync(lockPath);
       return true;
     } catch (err) {
-      if (err.code === 'ENOENT') return false;
+      if (err.code === 'ENOENT') return true;
       throw err;
     }
   }
 
   // Does not belong to this run: do NOT delete!
   console.warn(
-    `[LOCK WARNING] Refusing to release lock held by different session (${existing?.runId || 'unknown'}).`,
+    `[LOCK WARNING] Refusing to release lock held by different session (${existing?.runId || 'unknown'}). Foreign lock preserved.`,
   );
   return false;
 }
@@ -160,13 +224,22 @@ async function startMock({
   runId,
   platform = 'android',
   ownerFile,
-  lockPath = DEFAULT_LOCK_PATH,
+  lockPath = getDefaultLockPath(),
+  runnerPid,
+  allowStaleReclaim = false,
   projectRoot = path.join(__dirname, '../..'),
 }) {
   if (!runId) throw new Error('runId is required to start mock server');
 
   // 1. Acquire cross-platform lock
-  acquireLock({ platform, runId, lockPath });
+  await acquireLock({
+    platform,
+    runId,
+    lockPath,
+    runnerPid: runnerPid || process.ppid || process.pid,
+    port,
+    allowStaleReclaim,
+  });
 
   // 2. Check if port is already occupied
   const portStatus = await checkPort(port);
@@ -208,6 +281,13 @@ async function startMock({
   child.on('exit', (code) => {
     hasExited = true;
     exitCode = code;
+  });
+
+  // Update lock with the persistent mock process PID
+  updateLockMetadata({
+    lockPath,
+    runId,
+    updates: { mockPid: child.pid, pid: child.pid },
   });
 
   // 4. Poll health endpoint and verify exact ownership
@@ -252,6 +332,7 @@ async function startMock({
     pid: child.pid,
     port,
     platform,
+    runnerPid: runnerPid || process.ppid || process.pid,
     startedAt: new Date().toISOString(),
   };
 
@@ -269,15 +350,22 @@ async function startMock({
 async function stopMock({
   runId,
   ownerFile,
-  lockPath = DEFAULT_LOCK_PATH,
+  lockPath = getDefaultLockPath(),
   port = DEFAULT_PORT,
 }) {
+  if (!runId) throw new Error('runId is required to stop mock server');
+
   let targetPid = null;
   let targetPort = port;
 
   if (ownerFile && fs.existsSync(ownerFile)) {
-    const ownerData = parseMetadata(fs.readFileSync(ownerFile, 'utf8'));
-    if (ownerData && ownerData.runId === runId) {
+    const raw = fs.readFileSync(ownerFile, 'utf8');
+    const ownerData = parseMetadata(raw);
+    if (!ownerData || typeof ownerData !== 'object') {
+      console.warn(
+        `[MOCK SAFETY] Owner file contains invalid/malformed JSON. Refusing to terminate unverified process.`,
+      );
+    } else if (ownerData.runId === runId) {
       targetPid = ownerData.pid;
       targetPort = ownerData.port || port;
     } else {
@@ -287,10 +375,19 @@ async function stopMock({
     }
   }
 
+  if (!targetPid && lockPath && fs.existsSync(lockPath)) {
+    const lockData = parseMetadata(fs.readFileSync(lockPath, 'utf8'));
+    if (lockData && lockData.runId === runId) {
+      targetPid = lockData.mockPid || lockData.pid;
+      targetPort = lockData.port || port;
+    }
+  }
+
   if (targetPid && isPidAlive(targetPid)) {
     // Verify that the listener on targetPort is actually the owned mock
     const health = await queryMockHealth(targetPort);
     if (
+      health?.status === 200 &&
       health?.data?.service === 'samgamam-acceptance-mock' &&
       health?.data?.runId === runId &&
       health?.data?.pid === targetPid
@@ -312,7 +409,7 @@ async function stopMock({
       }
     } else {
       console.warn(
-        `[MOCK SAFETY] PID ${targetPid} no longer matches active mock identity on port ${targetPort}. Foreign process left untouched.`,
+        `[MOCK SAFETY] PID ${targetPid} no longer matches active mock identity on port ${targetPort} for runId ${runId}. Foreign process left untouched.`,
       );
     }
   }
@@ -331,13 +428,82 @@ async function stopMock({
   return true;
 }
 
+// Supervisor mode: wraps full suite execution under long-lived lock and owned mock
+async function execSuite({
+  command,
+  args = [],
+  runId,
+  platform = 'android',
+  port = DEFAULT_PORT,
+  ownerFile,
+  lockPath = getDefaultLockPath(),
+}) {
+  if (!command) throw new Error('Command is required for execSuite');
+  const activeRunId = runId || `${platform}-${Date.now()}-${process.pid}`;
+
+  let cleanedUp = false;
+  const doCleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    await stopMock({ runId: activeRunId, ownerFile, lockPath, port });
+  };
+
+  const handleSignal = async (sig) => {
+    console.log(`[SUPERVISOR] Caught signal ${sig}, cleaning up...`);
+    await doCleanup();
+    process.exit(1);
+  };
+
+  process.on('SIGINT', () => handleSignal('SIGINT'));
+  process.on('SIGTERM', () => handleSignal('SIGTERM'));
+
+  try {
+    await startMock({
+      port,
+      runId: activeRunId,
+      platform,
+      ownerFile,
+      lockPath,
+      runnerPid: process.pid,
+    });
+
+    const child = spawn(command, args, {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        MOCK_PORT: String(port),
+        MOCK_RUN_ID: activeRunId,
+        ACCEPTANCE_LOCK_PATH: lockPath,
+      },
+    });
+
+    return new Promise((resolve) => {
+      child.on('close', async (code) => {
+        await doCleanup();
+        resolve(code ?? 0);
+      });
+      child.on('error', async (err) => {
+        console.error(`[SUPERVISOR] Failed to execute suite command:`, err);
+        await doCleanup();
+        resolve(1);
+      });
+    });
+  } catch (err) {
+    await doCleanup();
+    throw err;
+  }
+}
+
 module.exports = {
   acquireLock,
   releaseLock,
+  updateLockMetadata,
   checkPort,
   queryMockHealth,
   startMock,
   stopMock,
+  execSuite,
+  getDefaultLockPath,
   DEFAULT_PORT,
   DEFAULT_LOCK_PATH,
 };
@@ -356,7 +522,9 @@ if (require.main === module) {
   const runId = getArg('--run-id') || process.env.MOCK_RUN_ID;
   const platform = getArg('--platform') || 'android';
   const ownerFile = getArg('--owner-file');
-  const lockFile = getArg('--lock-file') || process.env.ACCEPTANCE_LOCK_PATH || DEFAULT_LOCK_PATH;
+  const runnerPid = getArg('--runner-pid') ? Number(getArg('--runner-pid')) : undefined;
+  const lockFile = getArg('--lock-file') || process.env.ACCEPTANCE_LOCK_PATH || getDefaultLockPath();
+  const allowStaleReclaim = args.includes('--force-stale') || args.includes('--allow-stale');
 
   (async () => {
     try {
@@ -365,7 +533,15 @@ if (require.main === module) {
           console.error('Error: --run-id is required for start');
           process.exit(1);
         }
-        await startMock({ port, runId, platform, ownerFile, lockPath: lockFile });
+        await startMock({
+          port,
+          runId,
+          platform,
+          ownerFile,
+          lockPath: lockFile,
+          runnerPid,
+          allowStaleReclaim,
+        });
         process.exit(0);
       } else if (command === 'stop') {
         if (!runId) {
@@ -374,9 +550,41 @@ if (require.main === module) {
         }
         await stopMock({ runId, ownerFile, lockPath: lockFile, port });
         process.exit(0);
+      } else if (command === 'exec') {
+        const cmdIdx = args.indexOf('--');
+        if (cmdIdx === -1 || cmdIdx + 1 >= args.length) {
+          console.error('Error: exec requires "-- <command> [args...]"');
+          process.exit(1);
+        }
+        const execCmd = args[cmdIdx + 1];
+        const execArgs = args.slice(cmdIdx + 2);
+        const code = await execSuite({
+          command: execCmd,
+          args: execArgs,
+          runId,
+          platform,
+          port,
+          ownerFile,
+          lockPath: lockFile,
+        });
+        process.exit(code);
       } else if (command === 'check') {
         const portStatus = await checkPort(port);
         console.log(JSON.stringify(portStatus));
+      } else if (command === 'unlock') {
+        if (!fs.existsSync(lockFile)) {
+          console.log(`Lock ${lockFile} does not exist.`);
+          process.exit(0);
+        }
+        const existing = parseMetadata(fs.readFileSync(lockFile, 'utf8'));
+        if (args.includes('--force') || (runId && existing?.runId === runId)) {
+          fs.unlinkSync(lockFile);
+          console.log(`Lock ${lockFile} unlinked.`);
+          process.exit(0);
+        } else {
+          console.error(`Refusing to remove active lock without --force. Owner: ${JSON.stringify(existing)}`);
+          process.exit(1);
+        }
       } else {
         console.error(`Unknown command: ${command}`);
         process.exit(1);
@@ -387,4 +595,3 @@ if (require.main === module) {
     }
   })();
 }
-

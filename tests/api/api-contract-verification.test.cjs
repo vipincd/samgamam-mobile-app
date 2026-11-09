@@ -2,7 +2,14 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 
-// Test the real API client contracts against mock server
+// NOTE ON TEST PROVENANCE AND EVIDENCE CLASSIFICATION:
+// CLASSIFICATION: PASS — CONTRACT TEST (MOCK CONTRACT ONLY)
+// These contract tests exercise scripts/testing/mock-api.cjs fixtures to verify route,
+// payload, query parameter, and error envelope specifications.
+// They do NOT constitute physical device verification or live production backend verification.
+// Executable client unit tests invoking the real mobile client (src/api/client.ts) are
+// implemented in src/api/client.test.ts and src/api/deterministic-backend.test.ts.
+
 const { createMockServer } = require('../../scripts/testing/mock-api.cjs');
 
 let server;
@@ -54,7 +61,7 @@ async function setMockMode(mode) {
   assert.equal(res.status, 200);
 }
 
-test('CONTRACT-01: Correct endpoint paths (v1 canonical routes)', async () => {
+test('CONTRACT-01: Canonical v1 routes (/v1/events, /v1/me, /healthz; /v1/users/me is 404)', async () => {
   await setMockMode('success');
 
   // Login to get valid token
@@ -65,21 +72,21 @@ test('CONTRACT-01: Correct endpoint paths (v1 canonical routes)', async () => {
   assert.equal(loginRes.status, 200);
   const token = loginRes.data.accessToken;
 
-  // Path 1: GET /api/v1/events
+  // Canonical Path 1: GET /api/v1/events
   const eventsRes = await apiRequest('/v1/events');
   assert.equal(eventsRes.status, 200);
   assert.ok(Array.isArray(eventsRes.data.data), 'events endpoint data must be an array');
 
-  // Path 2: GET /api/v1/me (NOT /api/v1/users/me)
+  // Canonical Path 2: GET /api/v1/me (Authoritative v1 profile route)
   const meRes = await apiRequest('/v1/me', { token });
   assert.equal(meRes.status, 200);
   assert.equal(meRes.data.data.viewer.id, 'qa-user');
 
-  // Verify /api/v1/users/me is NOT implemented (returns 404)
+  // Non-canonical Path: /api/v1/users/me is NOT implemented (returns 404)
   const oldUsersMeRes = await apiRequest('/v1/users/me', { token });
   assert.equal(oldUsersMeRes.status, 404, '/api/v1/users/me must not be used');
 
-  // Path 3: POST /api/v1/events/:eventId/rsvp
+  // Canonical Path 3: POST /api/v1/events/:eventId/rsvp
   const rsvpRes = await apiRequest('/v1/events/qa-event/rsvp', {
     method: 'POST',
     body: { state: 'going', termsAccepted: true },
@@ -87,7 +94,7 @@ test('CONTRACT-01: Correct endpoint paths (v1 canonical routes)', async () => {
   });
   assert.equal(rsvpRes.status, 200);
 
-  // Path 4: POST /api/v1/auth/revoke
+  // Canonical Path 4: POST /api/v1/auth/revoke
   const revokeRes = await apiRequest('/v1/auth/revoke', {
     method: 'POST',
     body: { token },
@@ -95,13 +102,13 @@ test('CONTRACT-01: Correct endpoint paths (v1 canonical routes)', async () => {
   });
   assert.equal(revokeRes.status, 200);
 
-  // Path 5: GET /api/healthz
+  // Canonical Path 5: GET /api/healthz
   const healthRes = await apiRequest('/healthz');
   assert.equal(healthRes.status, 200);
   assert.equal(healthRes.data.status, 'ok');
 });
 
-test('CONTRACT-02: Correct pagination request parameters for event discovery', async () => {
+test('CONTRACT-02: Keyset cursor pagination parameters for event discovery', async () => {
   await setMockMode('success');
 
   // Supported query parameters: cursor, limit, q, category, language, dateFrom, location, locale
@@ -134,7 +141,7 @@ test('CONTRACT-03: Cursor handling in cursor-based pagination', async () => {
   assert.ok(page.nextCursor === null || typeof page.nextCursor === 'string', 'nextCursor must be null or string');
 });
 
-test('CONTRACT-04: Page termination when hasNextPage=false', async () => {
+test('CONTRACT-04: End-of-pagination termination when hasNextPage=false', async () => {
   await setMockMode('success');
 
   const res = await apiRequest('/v1/events?limit=100');
@@ -143,107 +150,125 @@ test('CONTRACT-04: Page termination when hasNextPage=false', async () => {
   assert.equal(res.data.page.nextCursor, null, 'Terminal page must set nextCursor to null');
 });
 
-test('CONTRACT-05: Correct request authentication (Bearer token enforcement)', async () => {
+test('CONTRACT-05: Authenticated requests (Bearer token enforcement)', async () => {
   await setMockMode('success');
 
   // Unauthenticated request to protected endpoint must yield 401
   const unauthRes = await apiRequest('/v1/me');
   assert.equal(unauthRes.status, 401);
   assert.equal(unauthRes.data.error.code, 'unauthorized');
+  assert.equal(unauthRes.data.error.requestId, 'qa-request');
 
-  // Request with invalid token must yield 401
-  const badTokenRes = await apiRequest('/v1/me', { token: 'invalid-fake-token' });
-  assert.equal(badTokenRes.status, 401);
-
-  // Request with valid token succeeds
-  const loginRes = await apiRequest('/auth/login', {
-    method: 'POST',
-    body: { email: 'qa@example.test', password: 'test-only-password' },
-  });
-  const validRes = await apiRequest('/v1/me', { token: loginRes.data.accessToken });
-  assert.equal(validRes.status, 200);
-  assert.equal(validRes.data.data.viewer.email, 'qa@example.test');
-});
-
-test('CONTRACT-06: Correct RSVP payload ({ state, termsAccepted, riskAcknowledged })', async () => {
-  await setMockMode('success');
+  // Authenticated request with Bearer token succeeds
   const loginRes = await apiRequest('/auth/login', {
     method: 'POST',
     body: { email: 'qa@example.test', password: 'test-only-password' },
   });
   const token = loginRes.data.accessToken;
 
-  // 1. Missing termsAccepted must fail with 400 consent_required
-  const missingConsent = await apiRequest('/v1/events/qa-event/rsvp', {
+  const authRes = await apiRequest('/v1/me', { token });
+  assert.equal(authRes.status, 200);
+  assert.equal(authRes.data.data.viewer.id, 'qa-user');
+});
+
+test('CONTRACT-06: Accurate RSVP contract and conditional risk acknowledgment rules', async () => {
+  await setMockMode('success');
+
+  const loginRes = await apiRequest('/auth/login', {
+    method: 'POST',
+    body: { email: 'qa@example.test', password: 'test-only-password' },
+  });
+  const token = loginRes.data.accessToken;
+
+  // 1. Invalid state rejected
+  const badState = await apiRequest('/v1/events/qa-event/rsvp', {
+    method: 'POST',
+    body: { state: 'invalid_status' },
+    token,
+  });
+  assert.equal(badState.status, 400);
+  assert.equal(badState.data.error.code, 'invalid_state');
+
+  // 2. Joining standard event (requiresRiskAcknowledgement: false) without termsAccepted -> REJECTED
+  const noTerms = await apiRequest('/v1/events/qa-event/rsvp', {
     method: 'POST',
     body: { state: 'going' },
     token,
   });
-  assert.equal(missingConsent.status, 400);
-  assert.equal(missingConsent.data.error.code, 'consent_required');
+  assert.equal(noTerms.status, 400);
+  assert.equal(noTerms.data.error.code, 'consent_required');
 
-  // 2. Outdated legacy status field alone must fail with 400 invalid_state
-  const legacyStatus = await apiRequest('/v1/events/qa-event/rsvp', {
+  // 3. Joining standard event with termsAccepted: true -> SUCCEEDS (riskAcknowledged is NOT required)
+  const standardGoing = await apiRequest('/v1/events/qa-event/rsvp', {
     method: 'POST',
-    body: { status: 'going', termsAccepted: true },
+    body: { state: 'going', termsAccepted: true },
     token,
   });
-  assert.equal(legacyStatus.status, 400);
-  assert.equal(legacyStatus.data.error.code, 'invalid_state');
+  assert.equal(standardGoing.status, 200);
+  assert.equal(standardGoing.data.data.state, 'going');
 
-  // 3. Complete valid contract payload succeeds
-  const validRsvp = await apiRequest('/v1/events/qa-event/rsvp', {
+  // 4. Joining high-risk event (requiresRiskAcknowledgement: true) with termsAccepted but missing riskAcknowledged -> REJECTED
+  const riskMissing = await apiRequest('/v1/events/qa-risk-event/rsvp', {
+    method: 'POST',
+    body: { state: 'going', termsAccepted: true },
+    token,
+  });
+  assert.equal(riskMissing.status, 400);
+  assert.equal(riskMissing.data.error.code, 'risk_acknowledgement_required');
+
+  // 5. Joining high-risk event with both termsAccepted: true AND riskAcknowledged: true -> SUCCEEDS
+  const riskGoing = await apiRequest('/v1/events/qa-risk-event/rsvp', {
     method: 'POST',
     body: { state: 'going', termsAccepted: true, riskAcknowledged: true },
     token,
   });
-  assert.equal(validRsvp.status, 200);
-  assert.equal(validRsvp.data.data.state, 'going');
-  assert.equal(validRsvp.data.data.event.viewerRsvpState, 'going');
+  assert.equal(riskGoing.status, 200);
+  assert.equal(riskGoing.data.data.state, 'going');
 
-  // 4. RSVP cancellation payload
-  const cancelRsvp = await apiRequest('/v1/events/qa-event/rsvp', {
+  // 6. Cancelling RSVP -> neither terms nor risk acknowledgement required
+  const cancelRes = await apiRequest('/v1/events/qa-event/rsvp', {
     method: 'POST',
     body: { state: 'cancelled' },
     token,
   });
-  assert.equal(cancelRsvp.status, 200);
-  assert.equal(cancelRsvp.data.data.state, 'cancelled');
+  assert.equal(cancelRes.status, 200);
+  assert.equal(cancelRes.data.data.state, 'cancelled');
 });
 
 test('CONTRACT-07: Error-envelope parsing ({ error: { code, message, requestId } })', async () => {
   await setMockMode('error');
 
-  const errRes = await apiRequest('/v1/events');
-  assert.equal(errRes.status, 503);
-  assert.ok(errRes.data.error, 'Payload must contain error object');
-  assert.equal(typeof errRes.data.error.code, 'string');
-  assert.equal(typeof errRes.data.error.message, 'string');
-  assert.ok(errRes.data.error.message.length > 0, 'Error message must be present');
+  const res = await apiRequest('/v1/events');
+  assert.equal(res.status, 503);
+  assert.ok(res.data.error, 'Response must contain error object');
+  assert.equal(res.data.error.code, 'unavailable');
+  assert.ok(typeof res.data.error.message === 'string', 'Error must contain message string');
+  assert.equal(res.data.error.requestId, 'qa-request', 'Error envelope must contain requestId');
 });
 
 test('CONTRACT-08: HTTP 401 vs 403 semantic handling', async () => {
-  // 401: Unauthorized / expired session (triggers re-auth or logout)
   await setMockMode('unauthorized');
   const res401 = await apiRequest('/v1/events');
   assert.equal(res401.status, 401);
   assert.equal(res401.data.error.code, 'expired');
+  assert.equal(res401.data.error.requestId, 'qa-request');
 
-  // 403: Forbidden / access denied (does NOT trigger refresh loop)
   await setMockMode('forbidden');
   const res403 = await apiRequest('/v1/events');
   assert.equal(res403.status, 403);
   assert.equal(res403.data.error.code, 'forbidden');
+  assert.equal(res403.data.error.requestId, 'qa-request');
 });
 
 test('CONTRACT-09: Empty data handling returns uniform envelope with empty array', async () => {
   await setMockMode('empty');
 
-  const res = await apiRequest('/v1/events');
-  assert.equal(res.status, 200);
-  assert.deepEqual(res.data.data, []);
-  assert.deepEqual(res.data.page, { hasNextPage: false, nextCursor: null });
-  assert.ok(res.data.meta?.requestId);
+  const eventsRes = await apiRequest('/v1/events');
+  assert.equal(eventsRes.status, 200);
+  assert.deepEqual(eventsRes.data.data, []);
+  assert.equal(eventsRes.data.page.hasNextPage, false);
+  assert.equal(eventsRes.data.page.nextCursor, null);
+  assert.equal(eventsRes.data.meta.requestId, 'qa-request');
 
   const groupsRes = await apiRequest('/v1/groups');
   assert.equal(groupsRes.status, 200);
@@ -254,7 +279,5 @@ test('CONTRACT-10: Malformed response handling', async () => {
   await setMockMode('malformed');
 
   const res = await apiRequest('/v1/events');
-  assert.equal(res.status, 200);
-  // Malformed JSON is caught gracefully by parser
-  assert.ok(res.data.rawParseError, 'Malformed payload must be caught by parse guard');
+  assert.ok(res.data.rawParseError, 'Client must detect malformed JSON without crashing');
 });

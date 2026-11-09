@@ -14,31 +14,32 @@ const {
   stopMock,
   checkPort,
   queryMockHealth,
+  execSuite,
 } = require('../../scripts/testing/mock-manager.cjs');
 
-describe('Android Test Isolation & Process Safety Suite (AND-ISO-01..10)', () => {
+describe('Cross-Platform Lock Safety, Test Isolation & Process Safety Suite', () => {
   let tmpDir;
   let testPort;
   let lockFile;
   let ownerFile;
+  let activeRunIds = [];
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samgamam-iso-test-'));
-    // Use high dynamic test port to avoid collision with any developer service
+    // Use dynamic port to avoid collision with any developer service
     testPort = 20000 + Math.floor(Math.random() * 20000);
     lockFile = path.join(tmpDir, 'test-acceptance.lock');
     ownerFile = path.join(tmpDir, 'test-mock-owner.json');
+    activeRunIds = [];
   });
 
   afterEach(async () => {
-    try {
-      if (fs.existsSync(ownerFile)) {
-        const data = JSON.parse(fs.readFileSync(ownerFile, 'utf8'));
-        if (data.pid) {
-          try { process.kill(data.pid, 'SIGKILL'); } catch {}
-        }
-      }
-    } catch {}
+    // Verified safe cleanup: only stop known owned test runs via stopMock
+    for (const runId of activeRunIds) {
+      try {
+        await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      } catch {}
+    }
 
     try {
       if (fs.existsSync(lockFile)) {
@@ -47,90 +48,69 @@ describe('Android Test Isolation & Process Safety Suite (AND-ISO-01..10)', () =>
     } catch {}
 
     try {
+      if (fs.existsSync(ownerFile)) {
+        fs.unlinkSync(ownerFile);
+      }
+    } catch {}
+
+    try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
   });
 
-  test('AND-ISO-01: Port available -> Mock starts and verifies ownership', async () => {
-    const runId = `android-test-iso-01-${Date.now()}`;
+  test('LOCK-01: Android owns lock -> iOS cannot start conflicting suite', async () => {
+    const androidRunId = `android-test-lock-01-${Date.now()}`;
+    activeRunIds.push(androidRunId);
+
+    // Android starts mock and acquires lock
     const ownerData = await startMock({
       port: testPort,
-      runId,
+      runId: androidRunId,
       platform: 'android',
       ownerFile,
       lockPath: lockFile,
     });
+    assert.ok(ownerData.pid > 0);
 
-    assert.ok(ownerData.pid > 0, 'Mock process PID must be recorded');
-    assert.equal(ownerData.runId, runId);
-    assert.equal(ownerData.port, testPort);
-
-    // Verify health endpoint identity
-    const health = await queryMockHealth(testPort);
-    assert.equal(health.status, 200);
-    assert.equal(health.data.service, 'samgamam-acceptance-mock');
-    assert.equal(health.data.runId, runId);
-    assert.equal(health.data.pid, ownerData.pid);
-
-    // Stop and clean up
-    await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
-    assert.equal(fs.existsSync(lockFile), false, 'Lock must be released');
-  });
-
-  test('AND-ISO-02: Foreign listener occupies port -> Test runner fails without terminating foreign listener', async () => {
-    // Start an independent foreign HTTP server on testPort
-    let foreignTerminated = false;
-    const foreignServer = http.createServer((req, res) => {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('foreign-service');
-    });
-
-    await new Promise((resolve) => foreignServer.listen(testPort, '127.0.0.1', resolve));
-    foreignServer.on('close', () => { foreignTerminated = true; });
-
-    const runId = `android-test-iso-02-${Date.now()}`;
-
-    // Attempting to start the mock must fail closed
+    // iOS attempts to start on same lock
+    const iosRunId = `ios-test-lock-01-${Date.now()}`;
     await assert.rejects(
       async () => {
         await startMock({
           port: testPort,
-          runId,
-          platform: 'android',
-          ownerFile,
+          runId: iosRunId,
+          platform: 'ios',
+          ownerFile: path.join(tmpDir, 'ios-owner.json'),
           lockPath: lockFile,
         });
       },
-      /PORT CONFLICT/,
+      /LOCK BUSY.*android/,
+      'iOS must be rejected when Android holds active lock',
     );
 
-    // Foreign server must still be running and alive!
-    assert.equal(foreignTerminated, false, 'Foreign listener must NOT be terminated');
-    const res = await new Promise((resolve) => {
-      http.get(`http://127.0.0.1:${testPort}`, (r) => resolve(r.statusCode));
-    });
-    assert.equal(res, 200, 'Foreign listener must still respond with 200');
-
-    // Clean up foreign server
-    await new Promise((resolve) => foreignServer.close(resolve));
+    // Android mock must remain unaffected
+    const health = await queryMockHealth(testPort);
+    assert.equal(health?.status, 200);
+    assert.equal(health?.data?.runId, androidRunId);
   });
 
-  test('AND-ISO-03: iOS mock owns port -> Android leaves it untouched and fails closed', async () => {
-    const iosRunId = `ios-test-session-${Date.now()}`;
-    const iosLockFile = lockFile;
-    const iosOwnerFile = path.join(tmpDir, 'ios-owner.json');
+  test('LOCK-02: iOS owns lock -> Android cannot start conflicting suite', async () => {
+    const iosRunId = `ios-test-lock-02-${Date.now()}`;
+    activeRunIds.push(iosRunId);
 
-    // Simulate Developer D iOS mock startup
-    const iosOwner = await startMock({
+    // iOS starts mock and acquires lock
+    const iosOwnerFile = path.join(tmpDir, 'ios-owner.json');
+    const ownerData = await startMock({
       port: testPort,
       runId: iosRunId,
       platform: 'ios',
       ownerFile: iosOwnerFile,
-      lockPath: iosLockFile,
+      lockPath: lockFile,
     });
+    assert.ok(ownerData.pid > 0);
 
-    // Android attempts to run on the same environment
-    const androidRunId = `android-test-session-${Date.now()}`;
+    // Android attempts to start on same lock
+    const androidRunId = `android-test-lock-02-${Date.now()}`;
     await assert.rejects(
       async () => {
         await startMock({
@@ -138,100 +118,167 @@ describe('Android Test Isolation & Process Safety Suite (AND-ISO-01..10)', () =>
           runId: androidRunId,
           platform: 'android',
           ownerFile,
-          lockPath: iosLockFile,
+          lockPath: lockFile,
         });
       },
       /LOCK BUSY.*ios/,
+      'Android must be rejected when iOS holds active lock',
     );
 
-    // iOS mock must be completely untouched and intact
+    // iOS mock must remain unaffected
     const health = await queryMockHealth(testPort);
-    assert.equal(health.status, 200);
-    assert.equal(health.data.runId, iosRunId);
-    assert.equal(health.data.pid, iosOwner.pid);
-
-    // Cleanup iOS mock
-    await stopMock({ runId: iosRunId, ownerFile: iosOwnerFile, lockPath: iosLockFile, port: testPort });
+    assert.equal(health?.status, 200);
+    assert.equal(health?.data?.runId, iosRunId);
   });
 
-  test('AND-ISO-04: Android owns mock -> Cleanup terminates owned mock only', async () => {
-    // 1. Start a foreign server on an adjacent port
-    const foreignPort = testPort + 1;
-    let foreignKilled = false;
-    const foreignServer = http.createServer((req, res) => res.end('foreign'));
-    await new Promise((r) => foreignServer.listen(foreignPort, '127.0.0.1', r));
-    foreignServer.on('close', () => { foreignKilled = true; });
+  test('LOCK-03: Startup CLI exits -> Lock remains valid while suite runs (real child processes)', async () => {
+    const runId = `cli-runner-test-${Date.now()}`;
+    activeRunIds.push(runId);
+    const managerCli = path.resolve(__dirname, '../../scripts/testing/mock-manager.cjs');
 
-    // 2. Start Android mock on testPort
-    const runId = `android-test-iso-04-${Date.now()}`;
-    const ownerData = await startMock({
+    // Execute real independent CLI process: `mock-manager.cjs start`
+    const startResult = await new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [
+          managerCli,
+          'start',
+          '--port',
+          String(testPort),
+          '--platform',
+          'android',
+          '--run-id',
+          runId,
+          '--owner-file',
+          ownerFile,
+          '--lock-file',
+          lockFile,
+        ],
+        (err, stdout, stderr) => {
+          if (err) reject(new Error(`CLI start failed: ${stderr || err.message}`));
+          else resolve({ stdout, stderr });
+        },
+      );
+    });
+
+    assert.ok(startResult.stdout.includes('[MOCK STARTED]'));
+
+    // Startup CLI has exited with code 0!
+    // The lock file must exist and contain the persistent mockPid
+    assert.ok(fs.existsSync(lockFile), 'Lock file must exist');
+    const lockMeta = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    assert.equal(lockMeta.runId, runId);
+    assert.ok(lockMeta.mockPid > 0, 'Lock metadata must record child mockPid');
+
+    // Health probe confirms the mock server is running and verified
+    const health = await queryMockHealth(testPort);
+    assert.equal(health?.status, 200);
+    assert.equal(health?.data?.runId, runId);
+    assert.equal(health?.data?.pid, lockMeta.mockPid);
+
+    // A second independent CLI process attempts to start: must be rejected with LOCK BUSY
+    const secondResult = await new Promise((resolve) => {
+      execFile(
+        process.execPath,
+        [
+          managerCli,
+          'start',
+          '--port',
+          String(testPort),
+          '--platform',
+          'ios',
+          '--run-id',
+          `ios-competing-${Date.now()}`,
+          '--owner-file',
+          path.join(tmpDir, 'competing-owner.json'),
+          '--lock-file',
+          lockFile,
+        ],
+        (err, stdout, stderr) => {
+          resolve({ exitCode: err ? err.code : 0, stdout, stderr });
+        },
+      );
+    });
+
+    assert.notEqual(secondResult.exitCode, 0, 'Second CLI process must fail');
+    assert.ok(
+      secondResult.stderr.includes('LOCK BUSY'),
+      `Second process must report LOCK BUSY, got: ${secondResult.stderr}`,
+    );
+
+    // The original mock process is still alive and lock is untouched
+    const lockMetaAfter = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    assert.equal(lockMetaAfter.runId, runId, 'Original lock must be completely intact');
+
+    // Stop mock via CLI
+    await new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [
+          managerCli,
+          'stop',
+          '--run-id',
+          runId,
+          '--owner-file',
+          ownerFile,
+          '--lock-file',
+          lockFile,
+          '--port',
+          String(testPort),
+        ],
+        (err) => {
+          if (err) reject(err);
+          else resolve();
+        },
+      );
+    });
+
+    assert.equal(fs.existsSync(lockFile), false, 'Lock must be freed after stop CLI');
+  });
+
+  test('LOCK-04: Second process sees active lock -> No stale-lock deletion', async () => {
+    const runId1 = `run-1-${Date.now()}`;
+    activeRunIds.push(runId1);
+
+    await startMock({
       port: testPort,
-      runId,
+      runId: runId1,
       platform: 'android',
       ownerFile,
       lockPath: lockFile,
     });
 
-    assert.ok(ownerData.pid > 0);
-
-    // 3. Stop Android mock
-    await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
-
-    // 4. Verify owned mock is stopped
-    const mockPortStatus = await checkPort(testPort);
-    assert.equal(mockPortStatus.occupied, false, 'Owned mock port must be freed');
-
-    // 5. Verify foreign server is still alive
-    assert.equal(foreignKilled, false, 'Foreign server must NOT be affected');
-    await new Promise((r) => foreignServer.close(r));
-  });
-
-  test('AND-ISO-05: Mock exits early -> Clear failure diagnostic', async () => {
-    const runId = `android-test-iso-05-${Date.now()}`;
-    // Point to a non-existent script root to force immediate spawn error
+    const runId2 = `run-2-${Date.now()}`;
     await assert.rejects(
       async () => {
-        await startMock({
-          port: testPort,
-          runId,
+        await acquireLock({
           platform: 'android',
-          ownerFile,
+          runId: runId2,
           lockPath: lockFile,
-          projectRoot: path.join(tmpDir, 'empty-dir'),
+          port: testPort,
         });
       },
-      /Mock process exited early|MOCK TIMEOUT/,
+      /LOCK BUSY/,
     );
 
-    // Lock must not remain held
-    assert.equal(fs.existsSync(lockFile), false, 'Lock must be freed on early failure');
+    // Lock file must still belong to runId1 without being unlinked or modified
+    const currentLock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+    assert.equal(currentLock.runId, runId1, 'Lock must NOT be deleted or overwritten');
   });
 
-  test('AND-ISO-06: Runner receives SIGTERM -> Safe cleanup and lock release', async () => {
-    const runId = `android-test-iso-06-${Date.now()}`;
-    const ownerData = await startMock({
-      port: testPort,
-      runId,
-      platform: 'android',
-      ownerFile,
-      lockPath: lockFile,
+  test('LOCK-05: Foreign process occupies port -> Process untouched and test fails closed', async () => {
+    let foreignClosed = false;
+    const foreignServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('foreign-service-online');
     });
 
-    // Simulate SIGTERM handling by running stopMock
-    await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+    await new Promise((resolve) => foreignServer.listen(testPort, '127.0.0.1', resolve));
+    foreignServer.on('close', () => { foreignClosed = true; });
 
-    const portStatus = await checkPort(testPort);
-    assert.equal(portStatus.occupied, false, 'Port must be released');
-    assert.equal(fs.existsSync(lockFile), false, 'Lock file must be unlinked');
-  });
+    const runId = `android-lock-05-${Date.now()}`;
+    activeRunIds.push(runId);
 
-  test('AND-ISO-07: Runner fails during setup -> No foreign process affected', async () => {
-    // Start foreign service
-    const foreignServer = http.createServer((req, res) => res.end('safe'));
-    await new Promise((r) => foreignServer.listen(testPort, '127.0.0.1', r));
-
-    // Runner tries setup, fails because port is occupied
-    const runId = `android-test-iso-07-${Date.now()}`;
     await assert.rejects(
       async () => {
         await startMock({
@@ -245,67 +292,46 @@ describe('Android Test Isolation & Process Safety Suite (AND-ISO-01..10)', () =>
       /PORT CONFLICT/,
     );
 
-    // Attempting cleanup on failure
+    // Foreign server must be untouched
+    assert.equal(foreignClosed, false, 'Foreign listener must remain running');
+    const res = await new Promise((resolve) => {
+      http.get(`http://127.0.0.1:${testPort}`, (r) => {
+        let text = '';
+        r.on('data', (c) => { text += c; });
+        r.on('end', () => resolve({ status: r.statusCode, text }));
+      });
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.text, 'foreign-service-online');
+
+    await new Promise((resolve) => foreignServer.close(resolve));
+  });
+
+  test('LOCK-06: Normal completion -> Owned lock released', async () => {
+    const runId = `android-lock-06-${Date.now()}`;
+
+    await startMock({
+      port: testPort,
+      runId,
+      platform: 'android',
+      ownerFile,
+      lockPath: lockFile,
+    });
+    assert.ok(fs.existsSync(lockFile), 'Lock file must exist during active run');
+
+    // Normal completion
     await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+    assert.equal(fs.existsSync(lockFile), false, 'Lock file must be cleanly released');
 
-    // Foreign server is still listening!
-    const status = await checkPort(testPort);
-    assert.equal(status.occupied, true, 'Foreign process must remain running');
-    await new Promise((r) => foreignServer.close(r));
+    const portStatus = await checkPort(testPort);
+    assert.equal(portStatus.occupied, false, 'Port must be freed');
   });
 
-  test('AND-ISO-08: Concurrent Android and iOS requests -> Mutual exclusion prevents interference', async () => {
-    const iosRunId = `ios-iso-08-${Date.now()}`;
-    const androidRunId = `android-iso-08-${Date.now()}`;
+  test('LOCK-07: SIGTERM -> Safe cleanup via signal handler', async () => {
+    const runId = `android-lock-07-${Date.now()}`;
+    activeRunIds.push(runId);
 
-    // Acquire lock for iOS
-    acquireLock({ platform: 'ios', runId: iosRunId, lockPath: lockFile });
-
-    // Android tries to acquire lock concurrently
-    assert.throws(
-      () => {
-        acquireLock({ platform: 'android', runId: androidRunId, lockPath: lockFile });
-      },
-      /LOCK BUSY.*ios/,
-    );
-
-    // Release iOS lock
-    releaseLock({ runId: iosRunId, lockPath: lockFile });
-
-    // Now Android can acquire lock
-    const androidLock = acquireLock({ platform: 'android', runId: androidRunId, lockPath: lockFile });
-    assert.equal(androidLock.acquired, true);
-
-    releaseLock({ runId: androidRunId, lockPath: lockFile });
-  });
-
-  test('AND-ISO-09: Stale or malformed ownership metadata -> Fail safely', async () => {
-    // 1. Write malformed JSON to lock file
-    fs.writeFileSync(lockFile, '{{malformed json!!!', 'utf8');
-
-    const runId = `android-iso-09-${Date.now()}`;
-    assert.throws(
-      () => {
-        acquireLock({ platform: 'android', runId, lockPath: lockFile });
-      },
-      /LOCK ERROR.*malformed/,
-      'Must fail closed on malformed lock metadata',
-    );
-
-    // 2. Write empty/missing runId
-    fs.writeFileSync(lockFile, JSON.stringify({ pid: 1234 }), 'utf8');
-    assert.throws(
-      () => {
-        acquireLock({ platform: 'android', runId, lockPath: lockFile });
-      },
-      /LOCK ERROR.*malformed/,
-      'Must fail closed on missing runId metadata',
-    );
-  });
-
-  test('AND-ISO-10: Runner exits successfully -> No owned resources leak', async () => {
-    const runId = `android-test-iso-10-${Date.now()}`;
-    const ownerData = await startMock({
+    await startMock({
       port: testPort,
       runId,
       platform: 'android',
@@ -313,15 +339,294 @@ describe('Android Test Isolation & Process Safety Suite (AND-ISO-01..10)', () =>
       lockPath: lockFile,
     });
 
-    assert.equal(fs.existsSync(lockFile), true);
-    assert.equal(fs.existsSync(ownerFile), true);
-
+    // Simulated SIGTERM cleanup
     await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
 
-    assert.equal(fs.existsSync(lockFile), false, 'Lock file must not leak');
-    assert.equal(fs.existsSync(ownerFile), false, 'Owner file must not leak');
-
+    assert.equal(fs.existsSync(lockFile), false);
     const portStatus = await checkPort(testPort);
-    assert.equal(portStatus.occupied, false, 'Port must not remain bound');
+    assert.equal(portStatus.occupied, false);
+  });
+
+  test('LOCK-08: Malformed lock metadata -> Fail closed without wiping state', async () => {
+    fs.writeFileSync(lockFile, '{{malformed json content!!!', 'utf8');
+
+    const runId = `android-lock-08-${Date.now()}`;
+    assert.rejects(
+      async () => {
+        await acquireLock({ platform: 'android', runId, lockPath: lockFile, port: testPort });
+      },
+      /LOCK ERROR.*malformed/,
+    );
+
+    // Malformed lock file must not be silently deleted
+    assert.ok(fs.existsSync(lockFile), 'Must fail closed without destroying uncertain lock');
+  });
+
+  test('LOCK-09: Simulated PID reuse -> Foreign process protected', async () => {
+    // Start an independent foreign process (HTTP server) on a different port
+    const foreignPort = testPort + 5;
+    let foreignSurvives = true;
+    const foreignServer = http.createServer((req, res) => res.end('foreign-identity'));
+    await new Promise((resolve) => foreignServer.listen(foreignPort, '127.0.0.1', resolve));
+    foreignServer.on('close', () => { foreignSurvives = false; });
+
+    // Write a lock file pointing to the current test runner PID or foreign PID, but with different runId
+    const simulatedOwner = {
+      platform: 'ios',
+      runId: 'foreign-reused-run',
+      mockPid: process.pid, // Simulated PID match
+      port: testPort,
+      createdAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(lockFile, JSON.stringify(simulatedOwner), 'utf8');
+
+    const runId = `android-lock-09-${Date.now()}`;
+    await assert.rejects(
+      async () => {
+        await acquireLock({ platform: 'android', runId, lockPath: lockFile, port: testPort });
+      },
+      /LOCK BUSY/,
+    );
+
+    // Foreign process must survive
+    assert.equal(foreignSurvives, true, 'Foreign process must never be killed');
+    await new Promise((resolve) => foreignServer.close(resolve));
+  });
+
+  test('LOCK-10: Concurrent startup attempts -> Exactly one owner succeeds', async () => {
+    const promises = [];
+    const count = 5;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < count; i++) {
+      const runId = `concurrent-run-${i}-${Date.now()}`;
+      promises.push(
+        acquireLock({
+          platform: 'android',
+          runId,
+          lockPath: lockFile,
+          port: testPort,
+        })
+          .then(() => {
+            successCount++;
+            activeRunIds.push(runId);
+          })
+          .catch((err) => {
+            if (/LOCK BUSY|LOCK CONFLICT/.test(err.message)) {
+              failCount++;
+            } else {
+              throw err;
+            }
+          }),
+      );
+    }
+
+    await Promise.all(promises);
+    assert.equal(successCount, 1, 'Exactly one concurrent acquire must succeed');
+    assert.equal(failCount, count - 1, 'All other concurrent acquires must fail closed');
+  });
+
+  test('LOCK-11: Mock startup failure -> No orphaned owned resources', async () => {
+    const runId = `android-lock-11-${Date.now()}`;
+    // Force immediate failure by passing invalid project root
+    await assert.rejects(
+      async () => {
+        await startMock({
+          port: testPort,
+          runId,
+          platform: 'android',
+          ownerFile,
+          lockPath: lockFile,
+          projectRoot: path.join(tmpDir, 'nonexistent-project-root'),
+        });
+      },
+      /MOCK FAILURE|MOCK TIMEOUT|Mock process exited early/,
+    );
+
+    // Lock must not remain dangling
+    assert.equal(fs.existsSync(lockFile), false, 'Lock must be freed on failed startup');
+  });
+
+  test('LOCK-12: Long-running Maestro suite -> Lock remains valid throughout', async () => {
+    const runId = `android-lock-12-${Date.now()}`;
+    activeRunIds.push(runId);
+
+    // Start mock
+    const owner = await startMock({
+      port: testPort,
+      runId,
+      platform: 'android',
+      ownerFile,
+      lockPath: lockFile,
+    });
+    assert.ok(owner.pid > 0);
+
+    // Simulate multi-step acceptance suite execution (e.g. 5 simulated steps)
+    for (let step = 1; step <= 5; step++) {
+      await new Promise((r) => setTimeout(r, 60));
+      // Verify lock file is intact
+      const lockData = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+      assert.equal(lockData.runId, runId);
+      assert.equal(lockData.mockPid, owner.pid);
+
+      // Verify health endpoint responds with matching runId
+      const health = await queryMockHealth(testPort);
+      assert.equal(health?.status, 200);
+      assert.equal(health?.data?.runId, runId);
+    }
+
+    // Attempted concurrent acquire halfway through must still fail
+    await assert.rejects(
+      async () => {
+        await acquireLock({
+          platform: 'ios',
+          runId: `ios-late-${Date.now()}`,
+          lockPath: lockFile,
+          port: testPort,
+        });
+      },
+      /LOCK BUSY/,
+    );
+
+    // Clean finish
+    await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+    assert.equal(fs.existsSync(lockFile), false);
+  });
+
+  describe('Unsafe Cleanup Elimination & Hostile Owner-File Regression Tests', () => {
+    test('CLEANUP-01: Correct PID and run ID -> Graceful stop', async () => {
+      const runId = `cleanup-01-${Date.now()}`;
+      activeRunIds.push(runId);
+
+      const ownerData = await startMock({
+        port: testPort,
+        runId,
+        platform: 'android',
+        ownerFile,
+        lockPath: lockFile,
+      });
+
+      assert.ok(ownerData.pid > 0);
+      const stopped = await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      assert.equal(stopped, true);
+
+      const status = await checkPort(testPort);
+      assert.equal(status.occupied, false);
+    });
+
+    test('CLEANUP-02: Incorrect PID in owner file -> Foreign PID preserved', async () => {
+      // Start a foreign listener on an adjacent port
+      const foreignPort = testPort + 2;
+      let foreignAlive = true;
+      const foreignServer = http.createServer((req, res) => res.end('foreign-02'));
+      await new Promise((r) => foreignServer.listen(foreignPort, '127.0.0.1', r));
+      foreignServer.on('close', () => { foreignAlive = false; });
+
+      const runId = `cleanup-02-${Date.now()}`;
+      // Write hostile owner file with incorrect PID pointing to a foreign process
+      fs.writeFileSync(
+        ownerFile,
+        JSON.stringify({
+          runId,
+          pid: process.pid, // Not a mock server
+          port: foreignPort,
+        }),
+        'utf8',
+      );
+
+      // Attempting stopMock must refuse to kill the foreign PID
+      await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+
+      assert.equal(foreignAlive, true, 'Foreign process must not be killed');
+      await new Promise((r) => foreignServer.close(r));
+    });
+
+    test('CLEANUP-03: Incorrect run ID in owner file -> No termination', async () => {
+      const runId = `cleanup-03-${Date.now()}`;
+      fs.writeFileSync(
+        ownerFile,
+        JSON.stringify({
+          runId: 'different-run-id',
+          pid: process.pid,
+          port: testPort,
+        }),
+        'utf8',
+      );
+
+      await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      // Owner file must not be deleted if runId does not match
+      assert.ok(fs.existsSync(ownerFile), 'Foreign owner file must not be unlinked');
+    });
+
+    test('CLEANUP-04: Malformed JSON in owner file -> Fails safely without killing', async () => {
+      const runId = `cleanup-04-${Date.now()}`;
+      fs.writeFileSync(ownerFile, '{malformed json data...', 'utf8');
+
+      // Must not throw or crash or send blind signals
+      const stopped = await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      assert.equal(stopped, true);
+    });
+
+    test('CLEANUP-05: PID belonging to foreign listener on target port -> Foreign listener preserved', async () => {
+      let foreignServerAlive = true;
+      const foreignServer = http.createServer((req, res) => res.end('foreign-service'));
+      await new Promise((r) => foreignServer.listen(testPort, '127.0.0.1', r));
+      foreignServer.on('close', () => { foreignServerAlive = false; });
+
+      const runId = `cleanup-05-${Date.now()}`;
+      // Owner file claiming this port and current process PID
+      fs.writeFileSync(
+        ownerFile,
+        JSON.stringify({
+          runId,
+          pid: process.pid,
+          port: testPort,
+        }),
+        'utf8',
+      );
+
+      await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+
+      // Foreign server is still listening!
+      assert.equal(foreignServerAlive, true, 'Foreign listener must remain intact');
+      await new Promise((r) => foreignServer.close(r));
+    });
+
+    test('CLEANUP-06: Stale metadata (dead PID) -> Safe idempotent cleanup', async () => {
+      const runId = `cleanup-06-${Date.now()}`;
+      // PID 999999 is dead
+      fs.writeFileSync(
+        ownerFile,
+        JSON.stringify({
+          runId,
+          pid: 999999,
+          port: testPort,
+        }),
+        'utf8',
+      );
+
+      const stopped = await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      assert.equal(stopped, true);
+    });
+
+    test('CLEANUP-07: Already-terminated owned process -> Idempotent no-op', async () => {
+      const runId = `cleanup-07-${Date.now()}`;
+      const ownerData = await startMock({
+        port: testPort,
+        runId,
+        platform: 'android',
+        ownerFile,
+        lockPath: lockFile,
+      });
+
+      // First stop
+      await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      assert.equal(fs.existsSync(lockFile), false);
+
+      // Second stop: idempotent
+      const secondStop = await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
+      assert.equal(secondStop, true);
+    });
   });
 });

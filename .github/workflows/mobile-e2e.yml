@@ -41,18 +41,22 @@ jobs:
           npx expo prebuild --platform android --no-install
           node scripts/testing/prepare-android-acceptance.mjs
           cd android
+          # Bounded narrow retry specifically for transient network failures during Gradle distribution download (e.g. HTTP 504)
           for attempt in 1 2 3; do
-            echo "Gradle build attempt $attempt of 3..."
-            if ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --console=plain; then
+            echo "Acquiring Gradle distribution wrapper (attempt $attempt of 3)..."
+            if ./gradlew --version --console=plain; then
               break
             fi
             if [ "$attempt" -eq 3 ]; then
-              echo "Gradle build failed after 3 attempts."
+              echo "Failed to acquire Gradle distribution wrapper after 3 attempts."
               exit 1
             fi
-            echo "Gradle build attempt $attempt failed (e.g. network timeout). Retrying in 5s..."
+            echo "Transient network failure during Gradle distribution download. Retrying in 5s..."
             sleep 5
           done
+
+          # Assemble release APK without blind retries to keep compiler, source, and manifest errors immediately visible
+          ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --console=plain
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

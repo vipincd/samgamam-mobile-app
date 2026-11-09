@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Start owned mock server with cross-platform lock and fail-closed port protection
-node scripts/testing/mock-manager.cjs start --port 4318 --platform android --run-id "$RUN_ID" --owner-file "$OWNER_FILE"
+node scripts/testing/mock-manager.cjs start --port 4318 --platform android --run-id "$RUN_ID" --owner-file "$OWNER_FILE" --runner-pid "$$"
 
 curl -fsS http://127.0.0.1:4318/__mock/health > artifacts/mock-health.json
 
