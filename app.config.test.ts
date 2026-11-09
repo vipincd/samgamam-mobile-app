@@ -129,7 +129,8 @@ describe('App Environment and Auth0 configuration', () => {
     it('supplies inert native placeholders without enabling unconfigured development login', () => {
       process.env = { ...originalEnvironment, APP_ENV: 'development' };
       const unconfigured = appConfig({ config: {} } as never);
-      expect(unconfigured.plugins).toContain('expo-secure-store');
+      // Keychain storage stays enabled; the app uses no biometrics, so no Face ID purpose string.
+      expect(unconfigured.plugins).toContainEqual(['expo-secure-store', { faceIDPermission: false }]);
       expect(unconfigured.plugins).toContainEqual(['react-native-auth0', { customScheme: 'samgamam', domain: 'unconfigured.invalid' }]);
       expect(readOptionalAuth0Configuration(process.env)).toBeUndefined();
     });

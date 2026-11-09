@@ -182,4 +182,47 @@ describe('SessionManager & Token Lifecycle', () => {
     expect(manager.getState().status).toBe('expired');
     expect(apiClient.hasStoredAccessToken()).toBe(false);
   });
+
+  it('7. refresh exchange sends the refreshed Auth0 token, not the expired backend token', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.getCredentials.mockResolvedValue({
+      accessToken: 'refreshed-auth0-access-token',
+      idToken: 'refreshed-id-token',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient); void manager;
+    await apiClient.setAccessToken('expired-backend-token');
+
+    const viewer = { id: 'user-1', email: 'user@example.com', fullName: 'Test User', roles: ['user'], emailVerified: true };
+    const json = (status: number, body: unknown) => ({
+      ok: status < 400,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => body,
+    });
+    const authorizations: [string, string | null][] = [];
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get('Authorization');
+      authorizations.push([url, authorization]);
+      if (url.endsWith('/v1/auth/session')) {
+        return authorization === 'Bearer refreshed-auth0-access-token'
+          ? json(200, { data: { accessToken: 'new-backend-token', locale: 'en', viewer }, meta: { requestId: 'req-exchange' } })
+          : json(401, { error: { code: 'invalid_access_token', message: 'A valid API access token is required.' } });
+      }
+      return authorization === 'Bearer new-backend-token'
+        ? json(200, { data: { viewer, locale: 'en' }, meta: { requestId: 'req-me' } })
+        : json(401, { error: { code: 'invalid_access_token', message: 'Token expired' } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    const profile = await apiClient.getViewerProfile();
+
+    expect(profile.data.viewer?.email).toBe('user@example.com');
+    expect(authorizations.map(([url, authorization]) => [url.replace(/^.*\/api/, ''), authorization])).toEqual([
+      ['/v1/me', 'Bearer expired-backend-token'],
+      ['/v1/auth/session', 'Bearer refreshed-auth0-access-token'],
+      ['/v1/me', 'Bearer new-backend-token'],
+    ]);
+    expect(manager.getState().status).toBe('signedIn');
+  });
 });

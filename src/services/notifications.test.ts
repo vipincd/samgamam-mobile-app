@@ -86,6 +86,23 @@ describe("Deep-Link & Push Payload Parser", () => {
     expect(parseDeepLinkUrl("samgamam://unknown/path")).toEqual({ type: "unknown", raw: "samgamam://unknown/path" });
   });
 
+  it("rejects unsafe entity IDs and links from foreign web hosts", () => {
+    expect(parseDeepLinkUrl("samgamam://event/..")).toEqual({ type: "unknown", raw: "samgamam://event/.." });
+    expect(parseDeepLinkUrl("samgamam://events/%2E%2E%2Fadmin").type).toBe("unknown");
+    expect(parseDeepLinkUrl("samgamam://group/a%2Fb").type).toBe("unknown");
+    expect(parseDeepLinkUrl("/events/..").type).toBe("unknown");
+    expect(parseDeepLinkUrl("https://evil.example/events/event-1")).toEqual({
+      type: "unknown",
+      raw: "https://evil.example/events/event-1",
+    });
+    expect(parseDeepLinkUrl("https://samgamam.com.evil.example/events/event-1").type).toBe("unknown");
+    expect(parseDeepLinkUrl("https://www.samgamam.com/events/0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e")).toEqual({
+      type: "event",
+      id: "0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e",
+    });
+    expect(parseNotificationData({ entityType: "event", entityId: "../me" })).toEqual({ type: "unknown" });
+  });
+
   it("parses structured notification payloads with entityType and entityId", () => {
     expect(parseNotificationData({ entityType: "event", entityId: "event-push-1" })).toEqual({
       type: "event",
