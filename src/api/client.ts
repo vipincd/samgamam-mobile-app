@@ -416,7 +416,9 @@ export class ApiClient {
       headers.set('Content-Type', 'application/json');
     }
 
-    if (this.accessToken) {
+    // An explicit Authorization header (the Auth0 token sent to /v1/auth/session)
+    // must not be replaced by a stored, possibly expired, backend session token.
+    if (this.accessToken && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${this.accessToken}`);
     }
 

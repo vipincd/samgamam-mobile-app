@@ -1,0 +1,14 @@
+appId: com.samgamam.mobile
+# iOS-only: a dot-segment event ID is rejected and the app stays on Discover
+# without opening details. Inspect GET /__mock/history afterwards to confirm
+# no request was made for the rejected ID.
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- openLink: samgamam://event/..
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- takeScreenshot: ios-deep-link-rejected

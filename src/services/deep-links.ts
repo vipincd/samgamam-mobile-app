@@ -6,6 +6,15 @@ export type NavigationTarget =
   | { type: 'groups' }
   | { type: 'unknown'; raw?: string };
 
+// Event and group IDs are UUIDs or slugs. Anything else (dot segments, encoded
+// separators) is rejected before it can reach an API path.
+const ENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const WEB_LINK_HOSTS = new Set(['samgamam.com', 'www.samgamam.com']);
+
+function entityTarget(type: 'event' | 'group', id: string, raw?: string): NavigationTarget {
+  return ENTITY_ID_PATTERN.test(id) ? { type, id } : { type: 'unknown', ...(raw ? { raw } : {}) };
+}
+
 export function parseDeepLinkUrl(url: string | null | undefined): NavigationTarget {
   if (!url || typeof url !== 'string') {
     return { type: 'unknown' };
@@ -27,10 +36,10 @@ export function parseDeepLinkUrl(url: string | null | undefined): NavigationTarg
 
     const [route, param] = parts;
     if (route === 'event' || route === 'events') {
-      return param ? { type: 'event', id: param } : { type: 'discover' };
+      return param ? entityTarget('event', param, trimmed) : { type: 'discover' };
     }
     if (route === 'group' || route === 'groups') {
-      return param ? { type: 'group', id: param } : { type: 'groups' };
+      return param ? entityTarget('group', param, trimmed) : { type: 'groups' };
     }
     if (route === 'notifications' || route === 'notification') {
       return { type: 'notification' };
@@ -46,6 +55,9 @@ export function parseDeepLinkUrl(url: string | null | undefined): NavigationTarg
     let pathname = trimmed;
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       const parsed = new URL(trimmed);
+      if (!WEB_LINK_HOSTS.has(parsed.hostname.toLowerCase())) {
+        return { type: 'unknown', raw: trimmed };
+      }
       pathname = parsed.pathname;
     }
 
@@ -60,10 +72,10 @@ export function parseDeepLinkUrl(url: string | null | undefined): NavigationTarg
     const param = segments[startIndex + 1];
 
     if (route === 'events' || route === 'event') {
-      return param ? { type: 'event', id: param } : { type: 'discover' };
+      return param ? entityTarget('event', param, trimmed) : { type: 'discover' };
     }
     if (route === 'groups' || route === 'group') {
-      return param ? { type: 'group', id: param } : { type: 'groups' };
+      return param ? entityTarget('group', param, trimmed) : { type: 'groups' };
     }
     if (route === 'notifications' || route === 'notification') {
       return { type: 'notification' };
@@ -88,10 +100,10 @@ export function parseNotificationData(data: unknown): NavigationTarget {
     const entityId = typeof payload.entityId === 'string' ? payload.entityId.trim() : null;
 
     if (entityType === 'event' && entityId) {
-      return { type: 'event', id: entityId };
+      return entityTarget('event', entityId);
     }
     if (entityType === 'group' && entityId) {
-      return { type: 'group', id: entityId };
+      return entityTarget('group', entityId);
     }
     if (entityType === 'notification') {
       return { type: 'notification' };
