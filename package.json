@@ -12,7 +12,7 @@
     "test": "jest --runInBand --testPathIgnorePatterns=.*real-backend.*",
     "test:integration": "jest --runInBand src/api/client-real-backend.test.ts",
     "security:audit": "node scripts/security-audit.cjs",
-    "test:contracts": "node --test tests/api/*.test.cjs tests/security/*.test.cjs",
+    "test:contracts": "node --test tests/api/*.test.cjs tests/security/*.test.cjs tests/isolation/*.test.cjs",
     "test:maestro": "node scripts/testing/run-maestro.mjs",
     "test:mock": "node scripts/testing/mock-api.cjs"
   },

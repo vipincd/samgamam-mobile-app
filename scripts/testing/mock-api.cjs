@@ -12,7 +12,13 @@ function createMockServer() {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
     const data = (value) => send(200, { data: value, meta: { requestId: 'qa-request' }, page: { hasNextPage: false, nextCursor: null } });
-    if (url.pathname === '/__mock/health') return send(200, { service: 'samgamam-acceptance-mock' });
+    if (url.pathname === '/__mock/health') {
+      return send(200, {
+        service: 'samgamam-acceptance-mock',
+        runId: process.env.MOCK_RUN_ID || null,
+        pid: process.pid,
+      });
+    }
     if (url.pathname === '/__mock/reset' && req.method === 'POST') {
       const next = url.searchParams.get('mode') || 'success';
       if (!modes.has(next)) return send(400, { error: 'Unknown scenario' });
@@ -59,5 +65,12 @@ function createMockServer() {
 module.exports = { createMockServer };
 if (require.main === module) {
   const port = Number(process.env.MOCK_PORT || 4318);
-  createMockServer().listen(port, '127.0.0.1', () => console.log(`Samgamam mock: http://127.0.0.1:${port}`));
+  const server = createMockServer();
+  server.listen(port, '127.0.0.1', () => console.log(`Samgamam mock: http://127.0.0.1:${port}`));
+  process.on('SIGTERM', () => {
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+    server.close(() => process.exit(0));
+  });
 }

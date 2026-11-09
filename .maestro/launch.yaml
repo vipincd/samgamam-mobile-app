@@ -7,6 +7,8 @@ appId: com.samgamam.mobile
     visible: "Search events|Quickstep isn't responding|System UI isn't responding"
     timeout: 60000
 - runFlow: dismiss-launcher-anr.yaml
+- assertNotVisible: "Samgamam isn't responding"
+- assertNotVisible: "Samgamam keeps stopping"
 - extendedWaitUntil:
     visible: "Search events"
     timeout: 60000
