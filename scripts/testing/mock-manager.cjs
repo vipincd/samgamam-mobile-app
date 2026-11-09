@@ -185,11 +185,15 @@ async function startMock({
     );
   }
 
-  // 3. Spawn mock server process with explicit runId
+  // 3. Spawn mock server process with explicit runId and detached stdio
+  const logDir = path.join(projectRoot, 'artifacts');
+  fs.mkdirSync(logDir, { recursive: true });
+  const logFd = fs.openSync(path.join(logDir, 'mock.log'), 'a');
+
   const scriptPath = path.join(projectRoot, 'scripts/testing/mock-api.cjs');
   const child = spawn(process.execPath, [scriptPath], {
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
       MOCK_PORT: String(port),
@@ -362,12 +366,14 @@ if (require.main === module) {
           process.exit(1);
         }
         await startMock({ port, runId, platform, ownerFile, lockPath: lockFile });
+        process.exit(0);
       } else if (command === 'stop') {
         if (!runId) {
           console.error('Error: --run-id is required for stop');
           process.exit(1);
         }
         await stopMock({ runId, ownerFile, lockPath: lockFile, port });
+        process.exit(0);
       } else if (command === 'check') {
         const portStatus = await checkPort(port);
         console.log(JSON.stringify(portStatus));
@@ -381,3 +387,4 @@ if (require.main === module) {
     }
   })();
 }
+
