@@ -3,7 +3,7 @@
 **Date:** 2026-11-09 (Europe/Berlin)  
 **Branch:** `feature/mobile-android-readiness`  
 **Base Commit SHA:** `f5e11b4bb60ef2b7ef58d029b6b3ba4879f2cfa7`  
-**Final HEAD SHA:** `27e462a5c37ae83685368a1d74652c7be0f889ef`  
+**Final HEAD SHA:** `0058c1562916b3f71df4649774a34b2aa9dcff94` (and follow-up documentation updates)  
 **Last Reviewed SHA:** `8deb8499f8253f4eabef257e4612b71f951fdf7f`  
 **Independent GitHub Review ID:** `5823001902`  
 **Author / Developer:** Developer C — Android Implementation  
