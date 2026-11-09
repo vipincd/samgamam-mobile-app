@@ -87,13 +87,13 @@ Final build SHA-256: executable `6f42661819c4e0beaaf3582c1e35ab55ec43bb9671226ae
 | IOS-06 Invalid credentials | BLOCKED | Credentials are entered on Auth0's hosted page, not in the app |
 | IOS-07 Session expiry | BLOCKED (UI); D1 fixed | Session tests #5–#7 |
 | IOS-08 Event listing | PASS | `GET /api/v1/events`, "1 gathering" |
-| IOS-09 Event search | NOT RUN | Needs text input; Maestro unavailable (see below) |
+| IOS-09 Event search | PASS (no-match path) | Maestro `04_search_empty_recovery`: "nomatch" shows the empty state, "Explore all" restores the list. A matching query is not asserted. |
 | IOS-10 Event details | PASS | Via deep link; date shown as "Sat, Jun 15 at 12:00 PM (Europe/Berlin)" for `10:00Z` |
 | IOS-11–14 RSVP, double-tap, cancel, waitlist | BLOCKED | Need an authenticated session; covered by API lifecycle Jest tests only |
 | IOS-15 Offline | PASS | Mock `offline` (socket destroyed): "Let's reconnect" + Try again; retry recovered after switching to success |
 | IOS-16 Backend unavailable | PASS | Mock `error` (503): same recovery UI, no crash |
 | IOS-17 Background/foreground | PASS | HOME then relaunch: same PID, Groups tab state kept |
-| IOS-18 Deep link | PASS | Valid link opens details; malicious links ignored (D2) |
+| IOS-18 Deep link | PASS | `simctl openurl` and Maestro iOS flows: valid link opens details; malicious links ignored (D2) |
 | IOS-19 Logout | BLOCKED (UI) | Session test #4 |
 | IOS-20 Dynamic Type | PARTIAL | Tab bar FAIL before, PASS after D4; Discover headline still oversized (note below) |
 | IOS-21 VoiceOver | NOT RUN | Static review only: 28 accessibility labels, tabs use `accessibilityRole="tab"` and `selected` state |
@@ -116,12 +116,27 @@ empty state, empty groups, signed-out profile, error/malformed/offline/timeout r
 background recovery). All use the local mock (simulated). New iOS-only flows `.maestro/ios/01_deep_link_event.yaml`
 and `02_deep_link_rejected.yaml` sit outside the runner's `smoke`/`regression` folders so Android CI does not run them.
 
-**Result: BLOCKED by the host.** Two runs on the current HEAD (`npm run test:maestro -- <UDID> all`,
-then `smoke` with `MAESTRO_DRIVER_STARTUP_TIMEOUT=600000`) were both stopped by the runner's 15-minute
-timeout (exit 143) with zero flows executed. The first never got an answer from the XCUITest driver; the
-second stalled after planning. The machine's load average was 240–350 throughout (other IDEs, VMs and
-Maestro JVMs). The Phase 9 iOS result (12/12) is **not** re-validated on this HEAD. The new iOS flows
-have not been executed by Maestro; the same scenarios were checked directly with `simctl` (IOS-18).
+**Result: shared suites 12/12 passed, iOS-only flows 2/2 passed** (Maestro 2.12.1, Release build of
+this branch, iPhone 17 Pro / iOS 26.5, simulated against the local mock). Every flow ran against a mock
+started from this worktree; ownership of port 4318 was checked before each run and the mock's survival after.
+
+| Run (local time, Nov 9) | Flows | Result |
+|---|---|---|
+| `npm run test:maestro -- <UDID> all`, 07:01:05–07:02:33 | `01`–`06` | 6 passed |
+| `maestro test` on `07`–`12`, 07:13:23–07:14:55 | `07`–`12` | 6 passed, mock survived |
+| `maestro test` on `.maestro/ios/*`, 07:15:19–07:15:56 | iOS `01`, `02` | 2 passed; mock history after `02` contains only the launch `GET /api/v1/events` and no request for the rejected ID |
+
+**Discarded runs.** Two earlier runs were stopped by the runner's 15-minute timeout (exit 143) with zero
+flows executed while the host load average was 240–350. A run at 06:55 reported 10/12, but its mock had
+failed to start (`EADDRINUSE`): Developer C's Android acceptance run was using its own mock on the same
+port 4318 at the same time, so both suites reset each other's scenarios. In the 07:01 run, flows `07`–`12`
+failed at 07:02:35 with "Failed to connect to 127.0.0.1:4318": Developer C's local
+`scripts/testing/android-ci.sh` begins with `lsof -ti :4318 | xargs kill -9` and killed this worktree's mock.
+That line exists only in Developer C's worktree, not on `main`.
+
+**Coordination needed:** the iOS and Android acceptance runs cannot run at the same time on one machine,
+because both builds are fail-closed to `http://127.0.0.1:4318`. Serialize them, or give each platform's
+acceptance build its own mock port, and avoid `kill -9` on the port in shared scripts.
 
 ## Performance (Release simulator, loaded host — indicative only)
 
@@ -138,7 +153,8 @@ have not been executed by Maestro; the same scenarios were checked directly with
 | `npm test` | 15 suites, 178 passed (176 + 2 new) |
 | `npm run test:contracts` | 18 passed |
 | iOS Release simulator build | PASS (arm64) |
-| Maestro iOS | BLOCKED (host) |
+| Maestro iOS, shared smoke + regression | 12/12 passed (simulated) |
+| Maestro iOS-only deep-link flows | 2/2 passed (simulated) |
 
 ## Release-readiness blockers (not fixed here)
 
