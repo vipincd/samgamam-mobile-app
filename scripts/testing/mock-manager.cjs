@@ -39,7 +39,10 @@ function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err) {
+    if (err.code === 'EPERM') {
+      return true;
+    }
     return false;
   }
 }
@@ -146,11 +149,11 @@ async function acquireLock({
     // Both runner and mock are not alive and health probe failed
     if (allowStaleReclaim) {
       console.warn(`[LOCK] Reclaiming verified stale lock file from inactive runId ${existing.runId}.`);
-      try {
-        fs.unlinkSync(lockPath);
-      } catch (err) {
-        if (err.code !== 'ENOENT') throw err;
-      }
+      await unlockLock({
+        lockPath,
+        port: existing.port || port,
+        force: true,
+      });
     } else {
       throw new Error(
         `[LOCK STALE] Stale acceptance lock detected at ${lockPath} from inactive session (runId: ${existing.runId}, platform: ${existing.platform || 'unknown'}, PID: ${activeMockPid || 'unknown'}). Refusing automatic deletion without explicit operator confirmation. Exiting fail-closed.`,
@@ -217,6 +220,170 @@ function releaseLock({ runId, lockPath = getDefaultLockPath() }) {
     `[LOCK WARNING] Refusing to release lock held by different session (${existing?.runId || 'unknown'}). Foreign lock preserved.`,
   );
   return false;
+}
+
+async function unlockLock({
+  lockPath = getDefaultLockPath(),
+  port = DEFAULT_PORT,
+  runId,
+  force = false,
+}) {
+  if (!fs.existsSync(lockPath)) {
+    return { unlinked: false, exists: false, message: `Lock ${lockPath} does not exist.` };
+  }
+
+  let content;
+  try {
+    content = fs.readFileSync(lockPath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return { unlinked: false, exists: false, message: `Lock ${lockPath} does not exist.` };
+    }
+    throw err;
+  }
+
+  const existing = parseMetadata(content);
+  if (!existing || typeof existing !== 'object' || !existing.runId) {
+    throw new Error(
+      `[LOCK ERROR] Lock at ${lockPath} contains malformed or unreadable metadata. Refusing to remove ambiguous lock without safe verification. Exiting fail-closed.`,
+    );
+  }
+
+  // 1. Owned release: caller explicitly owns this runId
+  if (runId && existing.runId === runId) {
+    try {
+      fs.unlinkSync(lockPath);
+      return { unlinked: true, owned: true, runId };
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return { unlinked: false, exists: false, message: `Lock ${lockPath} already removed.` };
+      }
+      throw err;
+    }
+  }
+
+  // 2. Caller provided runId that does NOT match, and force was not specified
+  if (runId && existing.runId !== runId && !force) {
+    throw new Error(
+      `[LOCK REFUSED] Lock at ${lockPath} is held by session ${existing.runId} (platform: ${existing.platform || 'unknown'}), not matching requested runId ${runId}. Refusing to remove foreign lock.`,
+    );
+  }
+
+  // 3. Neither force nor matching runId was provided
+  if (!force) {
+    throw new Error(
+      `[LOCK REFUSED] Refusing to remove lock without --force or matching --run-id. Lock owner: runId=${existing.runId}, platform=${existing.platform || 'unknown'}`,
+    );
+  }
+
+  // 4. Force unlock / stale-lock recovery path:
+  // Must verify inactivity across runner, mock server, health probe, and port occupancy.
+  const targetPort = existing.port || port || DEFAULT_PORT;
+  const runnerPid = existing.runnerPid;
+  const activeMockPid = existing.mockPid || existing.pid;
+
+  // A. Check runner liveness
+  if (runnerPid && isPidAlive(runnerPid)) {
+    throw new Error(
+      `[LOCK ACTIVE] Lock owner runner is actively running (platform: ${existing.platform || 'unknown'}, runnerPid: ${runnerPid}, runId: ${existing.runId}). Refusing to remove active lock.`,
+    );
+  }
+
+  // B. Check mock server process liveness
+  if (activeMockPid && isPidAlive(activeMockPid)) {
+    throw new Error(
+      `[LOCK ACTIVE] Mock server process is actively running (platform: ${existing.platform || 'unknown'}, mockPid: ${activeMockPid}, runId: ${existing.runId}). Refusing to remove active lock.`,
+    );
+  }
+
+  // C. Query mock HTTP health
+  const health = await queryMockHealth(targetPort);
+  if (
+    health?.status === 200 &&
+    health?.data?.service === 'samgamam-acceptance-mock' &&
+    health?.data?.runId === existing.runId
+  ) {
+    throw new Error(
+      `[LOCK ACTIVE] Mock server is actively responding on port ${targetPort} (runId: ${existing.runId}). Refusing to remove active lock.`,
+    );
+  }
+
+  // D. Ambiguity protection: if neither runnerPid nor activeMockPid was recorded
+  if (!runnerPid && !activeMockPid) {
+    throw new Error(
+      `[LOCK AMBIGUOUS] Lock metadata at ${lockPath} contains neither runnerPid nor mockPid. Inactivity cannot be safely verified. Refusing to remove ambiguous lock.`,
+    );
+  }
+
+  // E. Port check: never kill a foreign listener; refuse removal if port is occupied
+  const portStatus = await checkPort(targetPort);
+  if (portStatus.occupied) {
+    if (health?.data?.service === 'samgamam-acceptance-mock') {
+      throw new Error(
+        `[LOCK BUSY] Port ${targetPort} is occupied by active mock server (runId: ${health?.data?.runId || 'unknown'}). Refusing to remove lock.`,
+      );
+    }
+    throw new Error(
+      `[PORT CONFLICT] Port ${targetPort} is occupied by foreign listener. Refusing to remove lock or disturb foreign process.`,
+    );
+  }
+
+  // F. Protect against race conditions and concurrent recoveries:
+  // Re-verify the lock file hasn't changed between check and unlink
+  if (!fs.existsSync(lockPath)) {
+    return {
+      unlinked: false,
+      exists: false,
+      recovered: false,
+      reason: 'Lock was already unlinked concurrently.',
+    };
+  }
+
+  let finalContent;
+  try {
+    finalContent = fs.readFileSync(lockPath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return {
+        unlinked: false,
+        exists: false,
+        recovered: false,
+        reason: 'Lock was already unlinked concurrently.',
+      };
+    }
+    throw err;
+  }
+
+  const finalMeta = parseMetadata(finalContent);
+  if (!finalMeta || finalMeta.runId !== existing.runId) {
+    throw new Error(
+      `[LOCK CONFLICT] Lock at ${lockPath} changed concurrently during recovery verification (now held by runId: ${finalMeta?.runId || 'unknown'}). Aborting recovery.`,
+    );
+  }
+
+  try {
+    fs.unlinkSync(lockPath);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return {
+        unlinked: false,
+        exists: false,
+        recovered: false,
+        reason: 'Lock was already unlinked concurrently.',
+      };
+    }
+    throw err;
+  }
+
+  const recoveryReason = `Verified inactive session (runId: ${existing.runId}, platform: ${existing.platform || 'unknown'}): runnerPid ${runnerPid || 'none'} dead, mockPid ${activeMockPid || 'none'} dead, port ${targetPort} unoccupied.`;
+  console.log(`[LOCK RECOVERED] Stale lock at ${lockPath} successfully recovered. Reason: ${recoveryReason}`);
+
+  return {
+    unlinked: true,
+    recovered: true,
+    runId: existing.runId,
+    reason: recoveryReason,
+  };
 }
 
 async function startMock({
@@ -503,6 +670,9 @@ module.exports = {
   startMock,
   stopMock,
   execSuite,
+  unlockLock,
+  parseMetadata,
+  isPidAlive,
   getDefaultLockPath,
   DEFAULT_PORT,
   DEFAULT_LOCK_PATH,
@@ -572,19 +742,23 @@ if (require.main === module) {
         const portStatus = await checkPort(port);
         console.log(JSON.stringify(portStatus));
       } else if (command === 'unlock') {
-        if (!fs.existsSync(lockFile)) {
-          console.log(`Lock ${lockFile} does not exist.`);
-          process.exit(0);
-        }
-        const existing = parseMetadata(fs.readFileSync(lockFile, 'utf8'));
-        if (args.includes('--force') || (runId && existing?.runId === runId)) {
-          fs.unlinkSync(lockFile);
-          console.log(`Lock ${lockFile} unlinked.`);
-          process.exit(0);
+        const force = args.includes('--force');
+        const result = await unlockLock({
+          lockPath: lockFile,
+          port,
+          runId,
+          force,
+        });
+        if (result.unlinked) {
+          if (result.recovered) {
+            console.log(`[LOCK RECOVERED] Stale lock ${lockFile} unlinked. Reason: ${result.reason}`);
+          } else {
+            console.log(`[LOCK RELEASED] Lock ${lockFile} unlinked.`);
+          }
         } else {
-          console.error(`Refusing to remove active lock without --force. Owner: ${JSON.stringify(existing)}`);
-          process.exit(1);
+          console.log(result.message || `Lock ${lockFile} not unlinked.`);
         }
+        process.exit(0);
       } else {
         console.error(`Unknown command: ${command}`);
         process.exit(1);

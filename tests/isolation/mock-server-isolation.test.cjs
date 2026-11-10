@@ -15,7 +15,69 @@ const {
   checkPort,
   queryMockHealth,
   execSuite,
+  unlockLock,
+  parseMetadata,
+  isPidAlive,
 } = require('../../scripts/testing/mock-manager.cjs');
+
+async function safeCleanupTestFixture({
+  activeRunIds = [],
+  lockFile,
+  ownerFile,
+  tmpDir,
+  port,
+}) {
+  // 1. Gracefully stop mock servers that belong to activeRunIds
+  for (const runId of activeRunIds) {
+    try {
+      await stopMock({ runId, ownerFile, lockPath: lockFile, port });
+    } catch {}
+  }
+
+  // 2. Safe owner-verified lock release: only unlink if runId matches activeRunIds
+  if (lockFile && fs.existsSync(lockFile)) {
+    try {
+      const raw = fs.readFileSync(lockFile, 'utf8');
+      const meta = parseMetadata(raw);
+      if (meta && meta.runId && activeRunIds.includes(meta.runId)) {
+        try {
+          fs.unlinkSync(lockFile);
+        } catch (err) {
+          if (err.code !== 'ENOENT') throw err;
+        }
+      } else {
+        // Foreign lock or malformed metadata: preserve! Never delete unowned locks!
+      }
+    } catch {}
+  }
+
+  // 3. Safe owner-verified ownerFile release
+  if (ownerFile && fs.existsSync(ownerFile)) {
+    try {
+      const raw = fs.readFileSync(ownerFile, 'utf8');
+      const meta = parseMetadata(raw);
+      if (meta && meta.runId && activeRunIds.includes(meta.runId)) {
+        try {
+          fs.unlinkSync(ownerFile);
+        } catch (err) {
+          if (err.code !== 'ENOENT') throw err;
+        }
+      } else {
+        // Foreign owner file: preserve! Never delete unowned owner files!
+      }
+    } catch {}
+  }
+
+  // 4. Safe tmpDir removal: ONLY if tmpDir does NOT contain any preserved foreign lock, owner file, or other fixtures
+  if (tmpDir && fs.existsSync(tmpDir)) {
+    try {
+      const remainingFiles = fs.readdirSync(tmpDir);
+      if (remainingFiles.length === 0) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    } catch {}
+  }
+}
 
 describe('Cross-Platform Lock Safety, Test Isolation & Process Safety Suite', () => {
   let tmpDir;
@@ -34,28 +96,13 @@ describe('Cross-Platform Lock Safety, Test Isolation & Process Safety Suite', ()
   });
 
   afterEach(async () => {
-    // Verified safe cleanup: only stop known owned test runs via stopMock
-    for (const runId of activeRunIds) {
-      try {
-        await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
-      } catch {}
-    }
-
-    try {
-      if (fs.existsSync(lockFile)) {
-        fs.unlinkSync(lockFile);
-      }
-    } catch {}
-
-    try {
-      if (fs.existsSync(ownerFile)) {
-        fs.unlinkSync(ownerFile);
-      }
-    } catch {}
-
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    await safeCleanupTestFixture({
+      activeRunIds,
+      lockFile,
+      ownerFile,
+      tmpDir,
+      port: testPort,
+    });
   });
 
   test('LOCK-01: Android owns lock -> iOS cannot start conflicting suite', async () => {
@@ -627,6 +674,420 @@ describe('Cross-Platform Lock Safety, Test Isolation & Process Safety Suite', ()
       // Second stop: idempotent
       const secondStop = await stopMock({ runId, ownerFile, lockPath: lockFile, port: testPort });
       assert.equal(secondStop, true);
+    });
+
+    test('CLEANUP-08: Foreign-owned lock survives test cleanup', async () => {
+      // Start a foreign listener on an adjacent port
+      const foreignPort = testPort + 3;
+      let foreignServerAlive = true;
+      const foreignServer = http.createServer((req, res) => res.end('foreign-08-service'));
+      await new Promise((r) => foreignServer.listen(foreignPort, '127.0.0.1', r));
+      foreignServer.on('close', () => { foreignServerAlive = false; });
+
+      const foreignRunId = `foreign-session-${Date.now()}`;
+      const foreignLockPayload = {
+        platform: 'ios',
+        runId: foreignRunId,
+        runnerPid: process.pid,
+        mockPid: null,
+        port: foreignPort,
+        createdAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(foreignLockPayload, null, 2), 'utf8');
+
+      // The current test run only registered a different runId
+      const currentRunId = `current-run-${Date.now()}`;
+      activeRunIds.push(currentRunId);
+
+      // Invoke safe cleanup for the current test run
+      await safeCleanupTestFixture({
+        activeRunIds,
+        lockFile,
+        ownerFile,
+        tmpDir,
+        port: testPort,
+      });
+
+      // The foreign lock file MUST survive completely untouched
+      assert.ok(fs.existsSync(lockFile), 'Foreign-owned lock file must not be deleted by cleanup');
+      const surviving = parseMetadata(fs.readFileSync(lockFile, 'utf8'));
+      assert.equal(surviving?.runId, foreignRunId, 'Surviving lock must maintain foreign identity');
+
+      // Temporary test fixture directory containing foreign lock must be preserved
+      assert.ok(fs.existsSync(tmpDir), 'tmpDir containing foreign lock must be preserved');
+
+      // Foreign process must remain alive
+      assert.equal(foreignServerAlive, true, 'Foreign listener must not be killed');
+
+      await new Promise((r) => foreignServer.close(r));
+    });
+
+    test('CLEANUP-09: Malformed lock metadata survives cleanup safely without deletion', async () => {
+      fs.writeFileSync(lockFile, '{{malformed json metadata in lock', 'utf8');
+
+      const currentRunId = `current-run-09-${Date.now()}`;
+      activeRunIds.push(currentRunId);
+
+      await safeCleanupTestFixture({
+        activeRunIds,
+        lockFile,
+        ownerFile,
+        tmpDir,
+        port: testPort,
+      });
+
+      // Malformed lock file must survive without deletion or corruption
+      assert.ok(fs.existsSync(lockFile), 'Malformed lock file must survive cleanup');
+      assert.equal(fs.readFileSync(lockFile, 'utf8'), '{{malformed json metadata in lock');
+      assert.ok(fs.existsSync(tmpDir), 'tmpDir containing unverified lock must be preserved');
+    });
+
+    test('CLEANUP-10: Foreign owner file survives cleanup', async () => {
+      const foreignOwnerData = {
+        runId: 'foreign-owner-suite-10',
+        pid: process.pid,
+        port: testPort,
+      };
+      fs.writeFileSync(ownerFile, JSON.stringify(foreignOwnerData, null, 2), 'utf8');
+
+      const currentRunId = `current-run-10-${Date.now()}`;
+      activeRunIds.push(currentRunId);
+
+      await safeCleanupTestFixture({
+        activeRunIds,
+        lockFile,
+        ownerFile,
+        tmpDir,
+        port: testPort,
+      });
+
+      // Foreign owner file must not be unlinked
+      assert.ok(fs.existsSync(ownerFile), 'Foreign owner file must not be unlinked');
+      const survivingOwner = parseMetadata(fs.readFileSync(ownerFile, 'utf8'));
+      assert.equal(survivingOwner?.runId, 'foreign-owner-suite-10');
+    });
+
+    test('CLEANUP-11: Multiple sequential cleanup calls are strictly idempotent', async () => {
+      const runId = `cleanup-11-${Date.now()}`;
+      activeRunIds.push(runId);
+
+      const ownerData = await startMock({
+        port: testPort,
+        runId,
+        platform: 'android',
+        ownerFile,
+        lockPath: lockFile,
+      });
+      assert.ok(ownerData.pid > 0);
+
+      // First safe cleanup invocation
+      await safeCleanupTestFixture({
+        activeRunIds,
+        lockFile,
+        ownerFile,
+        tmpDir,
+        port: testPort,
+      });
+      assert.equal(fs.existsSync(lockFile), false, 'Owned lock must be unlinked on first cleanup');
+
+      // Second safe cleanup invocation: must be completely idempotent and not throw
+      await safeCleanupTestFixture({
+        activeRunIds,
+        lockFile,
+        ownerFile,
+        tmpDir,
+        port: testPort,
+      });
+      assert.equal(fs.existsSync(lockFile), false);
+    });
+  });
+
+  describe('Manual Force-Unlock Hardening & Stale-Lock Recovery Suite', () => {
+    const managerCli = path.resolve(__dirname, '../../scripts/testing/mock-manager.cjs');
+
+    test('UNLOCK-01: Live Android owner -> unlock --force rejected (LOCK ACTIVE), lock preserved', async () => {
+      const androidRunId = `android-unlock-01-${Date.now()}`;
+      activeRunIds.push(androidRunId);
+
+      const ownerData = await startMock({
+        port: testPort,
+        runId: androidRunId,
+        platform: 'android',
+        ownerFile,
+        lockPath: lockFile,
+      });
+      assert.ok(ownerData.pid > 0);
+
+      // 1. Programmatic unlockLock with force: true must be rejected
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+        },
+        /LOCK ACTIVE/,
+        'unlockLock must refuse to unlock active Android run',
+      );
+      assert.ok(fs.existsSync(lockFile), 'Lock file must remain intact');
+
+      // 2. CLI mock-manager.cjs unlock --force must also fail closed
+      const cliResult = await new Promise((resolve) => {
+        execFile(
+          process.execPath,
+          [
+            managerCli,
+            'unlock',
+            '--force',
+            '--lock-file',
+            lockFile,
+            '--port',
+            String(testPort),
+          ],
+          (err, stdout, stderr) => {
+            resolve({ code: err ? err.code : 0, stdout, stderr });
+          },
+        );
+      });
+
+      assert.notEqual(cliResult.code, 0, 'CLI unlock --force must fail on active Android lock');
+      assert.ok(
+        cliResult.stderr.includes('LOCK ACTIVE'),
+        `CLI stderr must contain LOCK ACTIVE, got: ${cliResult.stderr}`,
+      );
+      assert.ok(fs.existsSync(lockFile), 'Lock file must survive CLI force unlock');
+
+      // Mock must still be running and healthy
+      const health = await queryMockHealth(testPort);
+      assert.equal(health?.status, 200);
+      assert.equal(health?.data?.runId, androidRunId);
+    });
+
+    test('UNLOCK-02: Live iOS owner -> unlock --force rejected (LOCK ACTIVE), lock preserved', async () => {
+      const iosRunId = `ios-unlock-02-${Date.now()}`;
+      const iosLockData = {
+        platform: 'ios',
+        runId: iosRunId,
+        runnerPid: process.pid, // Current process is alive
+        mockPid: null,
+        port: testPort,
+        createdAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(iosLockData, null, 2), 'utf8');
+
+      // Programmatic force unlock must be rejected because runnerPid is alive
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+        },
+        /LOCK ACTIVE.*runnerPid/,
+        'Must reject unlocking live iOS runner',
+      );
+      assert.ok(fs.existsSync(lockFile), 'Lock file must remain intact');
+
+      // CLI force unlock must also reject
+      const cliResult = await new Promise((resolve) => {
+        execFile(
+          process.execPath,
+          [
+            managerCli,
+            'unlock',
+            '--force',
+            '--lock-file',
+            lockFile,
+            '--port',
+            String(testPort),
+          ],
+          (err, stdout, stderr) => {
+            resolve({ code: err ? err.code : 0, stdout, stderr });
+          },
+        );
+      });
+      assert.notEqual(cliResult.code, 0);
+      assert.ok(cliResult.stderr.includes('LOCK ACTIVE'));
+      assert.ok(fs.existsSync(lockFile));
+    });
+
+    test('UNLOCK-03: Active mock process on port -> unlock --force rejected, process preserved', async () => {
+      const runId = `unlock-03-${Date.now()}`;
+      activeRunIds.push(runId);
+
+      const ownerData = await startMock({
+        port: testPort,
+        runId,
+        platform: 'android',
+        ownerFile,
+        lockPath: lockFile,
+      });
+
+      // Even if runnerPid is simulated as dead, active mockPid and health verify activity
+      const lockData = parseMetadata(fs.readFileSync(lockFile, 'utf8'));
+      lockData.runnerPid = 999999; // Dead runner
+      fs.writeFileSync(lockFile, JSON.stringify(lockData, null, 2), 'utf8');
+
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+        },
+        /LOCK ACTIVE.*mockPid/,
+      );
+
+      // Mock process is NOT killed and lock is preserved
+      assert.ok(fs.existsSync(lockFile));
+      const health = await queryMockHealth(testPort);
+      assert.equal(health?.status, 200);
+      assert.equal(health?.data?.pid, ownerData.pid);
+    });
+
+    test('UNLOCK-04: Malformed lock metadata -> unlock --force rejected with LOCK ERROR', async () => {
+      fs.writeFileSync(lockFile, '{invalid:json:data...!}');
+
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+        },
+        /LOCK ERROR.*malformed/,
+      );
+
+      // CLI call
+      const cliResult = await new Promise((resolve) => {
+        execFile(
+          process.execPath,
+          [managerCli, 'unlock', '--force', '--lock-file', lockFile, '--port', String(testPort)],
+          (err, stdout, stderr) => {
+            resolve({ code: err ? err.code : 0, stdout, stderr });
+          },
+        );
+      });
+      assert.notEqual(cliResult.code, 0);
+      assert.ok(cliResult.stderr.includes('LOCK ERROR'));
+      assert.ok(fs.existsSync(lockFile));
+      assert.equal(fs.readFileSync(lockFile, 'utf8'), '{invalid:json:data...!}');
+    });
+
+    test('UNLOCK-05: Ambiguous lock metadata (no PIDs recorded) -> unlock --force rejected with LOCK AMBIGUOUS', async () => {
+      const ambiguousMeta = {
+        platform: 'android',
+        runId: 'ambiguous-run-without-pids',
+        runnerPid: null,
+        mockPid: null,
+        port: testPort,
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(ambiguousMeta, null, 2), 'utf8');
+
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+        },
+        /LOCK AMBIGUOUS/,
+      );
+      assert.ok(fs.existsSync(lockFile), 'Ambiguous lock must not be deleted');
+    });
+
+    test('UNLOCK-06: Foreign listener occupying port -> Never kill foreign listener, unlock rejected', async () => {
+      let foreignAlive = true;
+      const foreignServer = http.createServer((req, res) => res.end('foreign-service-06'));
+      await new Promise((r) => foreignServer.listen(testPort, '127.0.0.1', r));
+      foreignServer.on('close', () => { foreignAlive = false; });
+
+      // Stale lock pointing to testPort with dead PIDs
+      const staleLockWithForeignPort = {
+        platform: 'ios',
+        runId: 'stale-run-06',
+        runnerPid: 999999,
+        mockPid: 999998,
+        port: testPort,
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(staleLockWithForeignPort, null, 2), 'utf8');
+
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+        },
+        /PORT CONFLICT/,
+      );
+
+      // Foreign listener must be untouched
+      assert.equal(foreignAlive, true, 'Foreign listener must remain intact');
+      assert.ok(fs.existsSync(lockFile), 'Lock must not be removed while port is bound to foreign process');
+
+      await new Promise((r) => foreignServer.close(r));
+    });
+
+    test('UNLOCK-07: Verified inactive session -> unlock --force succeeds and records recovery reason', async () => {
+      const staleMeta = {
+        platform: 'android',
+        runId: 'verified-stale-07',
+        runnerPid: 999999, // Dead PID
+        mockPid: 999998,   // Dead PID
+        port: testPort,    // Free port
+        createdAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(staleMeta, null, 2), 'utf8');
+
+      const result = await unlockLock({ lockPath: lockFile, port: testPort, force: true });
+
+      assert.equal(result.unlinked, true);
+      assert.equal(result.recovered, true);
+      assert.equal(result.runId, 'verified-stale-07');
+      assert.ok(
+        result.reason.includes('Verified inactive session'),
+        `Reason must record verified inactivity, got: ${result.reason}`,
+      );
+      assert.ok(result.reason.includes('runnerPid 999999'));
+      assert.ok(result.reason.includes('mockPid 999998'));
+      assert.ok(result.reason.includes(`port ${testPort} unoccupied`));
+
+      assert.equal(fs.existsSync(lockFile), false, 'Verified stale lock must be successfully unlinked');
+    });
+
+    test('UNLOCK-08: Concurrent force-unlock attempts on stale lock -> Exactly one recovers, no corruption', async () => {
+      const staleMeta = {
+        platform: 'android',
+        runId: 'concurrent-stale-08',
+        runnerPid: 999999,
+        mockPid: 999998,
+        port: testPort,
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(staleMeta, null, 2), 'utf8');
+
+      const promises = [];
+      const concurrency = 5;
+      for (let i = 0; i < concurrency; i++) {
+        promises.push(
+          unlockLock({ lockPath: lockFile, port: testPort, force: true }),
+        );
+      }
+
+      const results = await Promise.all(promises);
+      const recoveredCount = results.filter((r) => r.recovered === true).length;
+      assert.equal(recoveredCount, 1, 'Exactly one concurrent recovery must succeed');
+
+      // All others must report lock was already unlinked concurrently
+      const nonRecovered = results.filter((r) => r.recovered !== true);
+      assert.equal(nonRecovered.length, concurrency - 1);
+      for (const nr of nonRecovered) {
+        assert.equal(nr.unlinked, false);
+      }
+
+      assert.equal(fs.existsSync(lockFile), false);
+    });
+
+    test('UNLOCK-09: Unlocked without --force and without matching runId -> Refused with LOCK REFUSED', async () => {
+      const lockMeta = {
+        platform: 'ios',
+        runId: 'ios-active-09',
+        runnerPid: 999999,
+        mockPid: 999998,
+        port: testPort,
+      };
+      fs.writeFileSync(lockFile, JSON.stringify(lockMeta, null, 2), 'utf8');
+
+      await assert.rejects(
+        async () => {
+          await unlockLock({ lockPath: lockFile, port: testPort, force: false, runId: 'mismatched-run' });
+        },
+        /LOCK REFUSED/,
+      );
+
+      assert.ok(fs.existsSync(lockFile), 'Lock must remain untouched without force or matching runId');
     });
   });
 });
