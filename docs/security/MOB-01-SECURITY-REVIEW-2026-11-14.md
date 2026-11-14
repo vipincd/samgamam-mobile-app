@@ -3,6 +3,8 @@
 **Reviewer role:** Mobile application security (AI Developer 8)
 **PR:** vipincd/samgamam-mobile-app#5, `agent/sg-forge/mob-01-release-hardening`
 **Starting HEAD (verified on GitHub):** `356542fdb176983e878a02c4ef5867c14fb5f96d`
+**Final verified PR #5 code HEAD:** `d40248c39b4b170248e429cf792c577309d1057e`. Both CI runs passed: Mobile CI 43603339167 and Android deterministic acceptance 43603339186.
+**Documentation-only commits after it:** `9a12087`, pushed to the PR #5 source branch before the final-acceptance brief said not to update that branch. It changes only this file. The final-acceptance update is on the agent-owned branch `agents/mobile08-pr5` and has not been pushed to the PR branch.
 **Base:** `main` @ `f5e11b4`
 **Environment:** local worktree; `npm ci` from lockfile; Node 22; no production credentials, services or data. Production-mode checks used reserved `*.example.invalid` Auth0 placeholders.
 **Out of scope:** account deletion and GDPR (Agent 10), and the PR #2, #6 and #7 branches, which were not modified.
@@ -126,5 +128,109 @@ Notes for the PR #2 rebase:
 2. **No production-signed iOS or Android build** has been produced or inspected. That is correct for this review, which had no credentials, but the first EAS production build must be checked for `aps-environment`, ATS, permissions and exported components.
 3. **Owner sign-off** on accepting the 3 residual moderate/low tooling advisories, with re-review by 2026-12-15.
 4. **PR #2 `zod` high exception** expires 2026-11-15 and should be remediated, not extended.
-5. **Maestro relaunch flow** conflicts with PR #7 (resolution above). Live relaunch regression on an emulator is still unexecuted for PR #5.
-6. **An unset `APP_ENV` keeps local networking** so local development still works. Release builds must go through the EAS profiles, which tests now enforce. A hand-made Xcode archive without `APP_ENV` would still ship local networking.
+5. **Maestro relaunch flow** conflicts with PR #7 (resolution above). The relaunch regression has **not run** for PR #5. CI run 43603339186 ran only the smoke suite (see section 7), so Android runtime acceptance is **not** complete. Targeted testing is requested from Agent 6.
+6. **An unset `APP_ENV` keeps local networking** so local development still works. Release builds must go through the EAS profiles, which tests now enforce. A hand-made Xcode archive without `APP_ENV` would still ship local networking (`NSAllowsLocalNetworking=true`), because an unset value is treated as development. Mitigations for the owner: build only through EAS, or have the release scheme or archive script set `APP_ENV`. This was not changed here because it would break `expo run:ios` local development.
+7. **The expo-dev-client scheme `exp+mobile-app` is registered on the release `MainActivity`** (section 3). It is low-risk, because the URLs resolve to `unknown`. Follow-up: set `addGeneratedScheme: false` outside development.
+8. **Android `samgamam://` app links:** in the release manifest the `samgamam` scheme is registered only on the Auth0 `RedirectActivity`, with the Auth0 host and callback path, and not on `MainActivity`. As a result `samgamam://event/<id>`-style links from outside the app do not reach `parseDeepLinkUrl` on Android. This is a functional observation, not a vulnerability; it is handed to Agent 6/7 to confirm the intended behaviour.
+
+## 7. Final native security acceptance and handoff to Agent 9 (2026-11-14)
+
+### 7.1 GitHub CI at `d40248c`
+
+| Workflow | Run | Result | Window (UTC) |
+| --- | --- | --- | --- |
+| Mobile CI | 43603339167 | success | — |
+| Android deterministic acceptance | 43603339186 | success | 14:09:00 to 14:17:41 |
+
+### 7.2 Release APK inspection (artifact `android-acceptance`, run 43603339186)
+
+Tools: Android build-tools 36.0.0 (`aapt2 dump permissions|xmltree|badging`, `apksigner verify --print-certs`).
+
+| Item | Value |
+| --- | --- |
+| File | `android/app/build/outputs/apk/release/app-release.apk` (43,917,359 bytes) |
+| SHA-256 | `9c46a174ee8c83969596f7ed478e373d8c88822f113c8934ed82d26162569de4` |
+| Application ID | `com.samgamam.mobile`, versionCode 1, versionName 1.0.0 |
+| Build variant | `release`, compile and target SDK 36, no `android:debuggable` |
+| Signing | **debug key** (`CN=Android Debug`, cert SHA-256 `fac61745…033b9c`). This is a CI acceptance build, **not** a store or production-signed build. |
+
+| Check | Result |
+| --- | --- |
+| 1. `androidx.compose.ui.tooling.PreviewActivity` absent | **Pass.** 0 occurrences; the `356542f` APK had 1. |
+| 2. `USE_BIOMETRIC` absent | **Pass** |
+| 3. `USE_FINGERPRINT` absent | **Pass** |
+| 4. `SYSTEM_ALERT_WINDOW` absent | **Pass** |
+| 5. Storage and microphone (`READ_/WRITE_/MANAGE_EXTERNAL_STORAGE`, `READ_MEDIA_*`, `RECORD_AUDIO`) absent | **Pass** |
+| 6. Camera and notifications kept | **Pass.** `CAMERA` (QR tickets), `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `VIBRATE`, `WAKE_LOCK`, FCM `c2dm.RECEIVE`. Compared with `356542f`, only the two biometric permissions changed. |
+| 7. No new exported development component | **Pass.** Exported components: `MainActivity`, the Auth0 `RedirectActivity`, GMS `RevocationBoundService` (signature permission), `FirebaseInstanceIdReceiver` (signature permission) and `ProfileInstallReceiver` (`DUMP`). All were present before. The only development artifact still in the release build is the `exp+mobile-app` intent filter on `MainActivity` (blocker 7). |
+
+All requested permissions: `CAMERA`, `INTERNET`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED`, `POST_NOTIFICATIONS`, `ACCESS_NETWORK_STATE`, `WAKE_LOCK`, `com.google.android.c2dm.permission.RECEIVE`, `com.samgamam.mobile.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` (declared and used by the app itself), install-referrer `BIND_GET_INSTALL_REFERRER_SERVICE`, `READ_APP_BADGE`, and launcher-badge permissions for Samsung, HTC, Sony, Anddoes, Majeur, Huawei, Oppo and Everything.me, which come from the notification badge library.
+
+### 7.3 Release configuration (committed tree and generated native projects)
+
+The generated projects come from `expo prebuild --clean` for each `APP_ENV` value.
+
+| Environment | `NSAllowsArbitraryLoads` | `NSAllowsLocalNetworking` | `PreviewActivity` removed | Biometric permissions removed |
+| --- | --- | --- | --- | --- |
+| unset | false | true (local development) | yes | yes |
+| `development` | false | true | yes | yes |
+| `preview` | false | **false** | yes | yes |
+| `production` | false | **false** | yes | yes |
+
+- **Unknown environments fail closed:** only exactly `development`, or the explicit `EXPO_PUBLIC_LOCAL_ACCEPTANCE=1` acceptance flag, enables local networking. Tests cover `staging`, `Production` and `develop`, which all resolve to false.
+- **Production overrides the acceptance flag:** `allowsLocalNetworking` returns false for `production` before it checks `EXPO_PUBLIC_LOCAL_ACCEPTANCE`.
+- **The Android cleartext overlay** (`acceptance_network_security`, loopback only) is generated only when the acceptance flag and the loopback URL are both set.
+- **The removal plugin works on real builds:** the generated manifest has `tools:node="remove"` for `PreviewActivity` in all 4 environments, and the CI-built APK no longer contains the activity.
+- Signing and credentials were not inspected or changed.
+- **Known limitation:** a hand-built Xcode archive without `APP_ENV` (blocker 6).
+
+### 7.4 Native CI coverage
+
+The `mobile-e2e.yml` workflow runs `scripts/testing/android-ci.sh '${{ inputs.suite || 'smoke' }}'`, so pull-request runs execute **smoke only**. The run's `results.xml` lists 2 tests, 0 failures:
+- `.maestro/smoke/01_startup.yaml` (9.5 s)
+- `.maestro/smoke/02_navigation.yaml` (17.5 s)
+
+`.maestro/regression/10_relaunch.yaml` **did not run**. This review therefore does not claim full Android runtime acceptance.
+
+**Request to Agent 6:** run the `regression` suite through `workflow_dispatch`, or run `10_relaunch.yaml` on an emulator, against PR #5 at `d40248c`. Do this after taking PR #7's version of the relaunch flow if #5 and #7 are being integrated.
+
+### 7.5 Dependency and exception status
+
+**PR #5 (live audit, 2026-11-14):**
+- Critical 0, high 0.
+- The 3 remaining build-tooling advisories have no non-breaking fix and are not in the shipped bundle:
+  - `glob` GHSA-3g3m-2fjr-6pw4 (moderate)
+  - `minimatch` GHSA-g3hv-75wg-m249 (moderate)
+  - `deepmerge` GHSA-gcqx-w48m-w2h4 (low)
+- Their acceptance and the review date of **2026-12-15** (or the PR #2 merge, if sooner) are a **proposal only**. They are not an approved exception.
+- **Approval still required:** the Mobile Toolchain / SG-FORGE remediation owner must explicitly accept or reject them. Until that happens they are recorded as open, unaccepted moderate/low findings.
+
+**PR #2 `4915a26` (lockfile-only audit, 2026-11-14, not modified by this review):**
+- The audit counts high 2: `zod` GHSA-mrhx-c7xc-m3w5 and its dependent `@expo/cli`. Both come from `node_modules/expo/node_modules/zod@3.25.76`, which `node_modules/expo/node_modules/@expo/cli@58.1.16` (`zod ^3.25.76`) pulls in.
+- The top-level `zod@4.6.7` is not affected. zod 3.x has no patched release (3.25.76 is the latest 3.x), so the only fix is to remove that dependency path.
+- **Expiry:** `EXCEPTION_EXPIRY = 2026-11-15T00:00:00Z`, which is **01:00 CET on 15 November 2026**. After that time PR #2's gate fails, which is intended. **The exception must not be extended.**
+- **Verified resolution:**
+  - `@expo/cli` 58.1.18 (published 2026-10-31T10:33Z), 58.1.19 and 58.1.20 declare **no** `zod` dependency and no `bundleDependencies`.
+  - The 58.1.18 tarball (1,310 files) contains no path matching `zod`.
+  - The installed `expo@58.0.20` declares `@expo/cli ^58.1.16`, so 58.1.18 or later resolves **without changing `expo`**. Newer `expo` 58.0.22 and later require `^58.1.18` themselves.
+  - Recommendation for the PR #2 owner: `npm update @expo/cli`, or bump to `expo@~58.0.22`. Then re-run `npm audit` to confirm that `expo/node_modules/zod` is gone, and delete the exception.
+
+### 7.6 Handoff summary for Agent 9
+
+1. **PR #5 SHA:** code `d40248c39b4b170248e429cf792c577309d1057e`. The PR branch tip is `9a12087` (documentation only).
+2. **APK evidence:** section 7.2.
+3. **Changed native configuration:**
+   - `app.config.ts`: ATS local-networking allow-list; `USE_BIOMETRIC` and `USE_FINGERPRINT` blocked; registers `./plugins/android-component-removals.js`.
+   - New `plugins/android-component-removals.js` (`PreviewActivity` `tools:node="remove"`).
+   - The `fast-uri` override set to 3.1.9, and the lockfile has `node-forge` 1.4.3.
+4. **Dependencies and exceptions:** section 7.5.
+5. **Conflicts:** re-checked on 2026-11-14 against PR #2 `4915a26`, PR #6 `a3e8370` and PR #7 `533bc56`:
+   - #6: clean against #5.
+   - #7: `.maestro/regression/10_relaunch.yaml` (take #7's version).
+   - #2: 8 files (section 5), and it already conflicts with `main`.
+   - #6 and #7 also conflict with each other. That is outside this review and belongs to Agent 9's integration branch.
+6. **The hardened security-audit gate must be kept** through every rebase and merge. That covers `main`'s fail-closed checks for `result.error`, `audit.error` and missing `metadata`, plus #5's check for unattributed high/critical findings and its per-advisory inventory. A "take theirs" resolution from PR #2 would reopen the gap. `tests/security/audit-gate.test.cjs` must keep passing.
+7. **Open native release limitations:** section 6, blockers 2 to 8.
+
+This review modified no other agent's branch or worktree, and did not merge, deploy or publish anything.
+
