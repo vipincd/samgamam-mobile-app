@@ -158,7 +158,7 @@ f9db0ac fix(maestro): send run id on the iOS no-entity-request history probe   <
 577db7c test(agent06): cross-platform mock ownership and lock acceptance harness
 59cae1c integration(agent06): merge PR #6 a3e8370 into PR #7 533bc56            <- conflict resolution
 ```
-Minimum for integration: the conflict resolution in `59cae1c` (`package.json`, `run-maestro.mjs`) plus `f9db0ac`. `f9db0ac` applies cleanly onto PR #6 (`a3e8370`) on its own, since it touches only the PR #6 probe and adds a test.
+Minimum for integration: the conflict resolution in `59cae1c` (`package.json`, `run-maestro.mjs`) plus `f9db0ac`. `f9db0ac` also updates harness case X3, which exists only on this branch. Cherry-picked onto PR #6 (`a3e8370`), its two functional files apply cleanly: `.maestro/scripts/assert-no-entity-requests.js` and `tests/security/maestro-mock-run-id.test.cjs`. The only conflict is the harness file (modify/delete), which should be dropped (checked 2026-11-14).
 
 ## 10. Verdict
 
