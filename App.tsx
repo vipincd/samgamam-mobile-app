@@ -409,7 +409,13 @@ function AppContent() {
                 style={({ pressed }) => [styles.tabButton, pressed && { opacity: 0.65 }]}
               >
                 <View style={[styles.iconWell, isActive && styles.iconWellActive]}><Icon size={21} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? brand.primaryStrong : brand.muted} /></View>
-                <Text style={[styles.tabLabel, isActive ? styles.tabLabelActive : undefined]}>
+                {/* Like native iOS tab bars, labels scale only slightly; at accessibility
+                    sizes unbounded scaling split "Discover" and "Profile" mid-word. */}
+                <Text
+                  maxFontSizeMultiplier={1.3}
+                  numberOfLines={1}
+                  style={[styles.tabLabel, isActive ? styles.tabLabelActive : undefined]}
+                >
                   {tab.label}
                 </Text>
               </Pressable>

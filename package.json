@@ -15,6 +15,7 @@
     "test:contracts": "node --test tests/api/*.test.cjs tests/security/*.test.cjs tests/isolation/*.test.cjs",
     "test:maestro": "node scripts/testing/run-maestro.mjs",
     "test:android:acceptance": "node scripts/testing/mock-manager.cjs exec --platform android -- node scripts/testing/run-maestro.mjs",
+    "test:maestro:ios": "bash scripts/testing/ios-acceptance.sh",
     "test:mock": "node scripts/testing/mock-api.cjs"
   },
   "dependencies": {

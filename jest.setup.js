@@ -76,6 +76,7 @@ jest.mock('expo-notifications', () => ({
     remove: jest.fn(),
   })),
   getLastNotificationResponseAsync: jest.fn(async () => null),
+  clearLastNotificationResponse: jest.fn(),
 }));
 
 jest.mock('expo-secure-store', () => {
