@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { existsSync, readFileSync, readdirSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { execFileSync, execSync } = require('node:child_process');
 const crypto = require('node:crypto');
@@ -19,6 +19,41 @@ const REQUIRED_PERMISSIONS = [
   'android.permission.INTERNET',
   'android.permission.CAMERA',
 ];
+
+// Every permission the release APK may declare, with the dependency that adds
+// it (from android/app/build/outputs/logs/manifest-merger-release-report.txt).
+// A permission outside this list fails the gate, so a new transitive
+// permission must be reviewed here before it can ship.
+const REVIEWED_APK_PERMISSIONS = {
+  'android.permission.CAMERA': 'app.json + expo-camera (QR ticket check-in)',
+  'android.permission.INTERNET': 'React Native networking',
+  'android.permission.ACCESS_NETWORK_STATE': 'firebase-messaging (via expo-notifications)',
+  'android.permission.VIBRATE': 'expo-notifications',
+  'android.permission.RECEIVE_BOOT_COMPLETED': 'expo-notifications (reschedule after reboot)',
+  'android.permission.POST_NOTIFICATIONS': 'expo-notifications (Android 13+ runtime prompt)',
+  'android.permission.WAKE_LOCK': 'expo-notifications / Firebase messaging',
+  'com.google.android.c2dm.permission.RECEIVE': 'Firebase Cloud Messaging (push)',
+  'android.permission.USE_BIOMETRIC': 'androidx.biometric via expo-secure-store (requireAuthentication support; app does not use it)',
+  'android.permission.USE_FINGERPRINT': 'androidx.biometric (legacy API alias)',
+  'com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE': 'com.android.installreferrer (transitive)',
+  'com.samgamam.mobile.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION': 'androidx.core signature-level self permission',
+  'android.permission.READ_APP_BADGE': 'me.leolin ShortcutBadger via expo-notifications',
+  'com.sec.android.provider.badge.permission.READ': 'ShortcutBadger (Samsung)',
+  'com.sec.android.provider.badge.permission.WRITE': 'ShortcutBadger (Samsung)',
+  'com.htc.launcher.permission.READ_SETTINGS': 'ShortcutBadger (HTC)',
+  'com.htc.launcher.permission.UPDATE_SHORTCUT': 'ShortcutBadger (HTC)',
+  'com.sonyericsson.home.permission.BROADCAST_BADGE': 'ShortcutBadger (Sony)',
+  'com.sonymobile.home.permission.PROVIDER_INSERT_BADGE': 'ShortcutBadger (Sony)',
+  'com.anddoes.launcher.permission.UPDATE_COUNT': 'ShortcutBadger (Apex)',
+  'com.majeur.launcher.permission.UPDATE_BADGE': 'ShortcutBadger (Solid)',
+  'com.huawei.android.launcher.permission.CHANGE_BADGE': 'ShortcutBadger (Huawei)',
+  'com.huawei.android.launcher.permission.READ_SETTINGS': 'ShortcutBadger (Huawei)',
+  'com.huawei.android.launcher.permission.WRITE_SETTINGS': 'ShortcutBadger (Huawei)',
+  'com.oppo.launcher.permission.READ_SETTINGS': 'ShortcutBadger (Oppo)',
+  'com.oppo.launcher.permission.WRITE_SETTINGS': 'ShortcutBadger (Oppo)',
+  'me.everything.badger.permission.BADGE_COUNT_READ': 'ShortcutBadger (Everything)',
+  'me.everything.badger.permission.BADGE_COUNT_WRITE': 'ShortcutBadger (Everything)',
+};
 
 function isAcceptanceMode() {
   return (
@@ -190,11 +225,10 @@ test('release APK binary permissions confirm prohibited permissions are stripped
   const apkBuffer = readFileSync(apkPath);
   const sha256 = crypto.createHash('sha256').update(apkBuffer).digest('hex');
   assert.equal(sha256.length, 64, 'APK SHA-256 must be a 64-character hex string');
-  assert.equal(
-    sha256,
-    '8da579f206b2f2927c138e64e50d5e5f4a7fbde98aab236ac3e1c578743df478',
-    'APK SHA-256 must match verified build artifact attestation',
-  );
+  // Builds are not bit-reproducible across machines or signing keys, so the
+  // hash is recorded as evidence of exactly which binary was inspected rather
+  // than pinned to one historical build.
+  t.diagnostic(`release APK sha256=${sha256} bytes=${apkBuffer.length}`);
 
   const aapt2Path = findAapt2();
   if (!aapt2Path) {
@@ -221,6 +255,14 @@ test('release APK binary permissions confirm prohibited permissions are stripped
       `Release APK must contain required permission ${reqPerm}`,
     );
   }
+
+  const declared = [...badgingOutput.matchAll(/^uses-permission: name='([^']+)'/gm)].map((m) => m[1]).sort();
+  const unreviewed = declared.filter((perm) => !(perm in REVIEWED_APK_PERMISSIONS));
+  assert.deepEqual(unreviewed, [], `Release APK declares unreviewed permissions: ${unreviewed.join(', ')}`);
+
+  const attestation = { apk: 'android/app/build/outputs/apk/release/app-release.apk', sha256, bytes: apkBuffer.length, permissions: declared, inspectedAt: new Date().toISOString() };
+  mkdirSync(join(projectRoot, 'artifacts'), { recursive: true });
+  writeFileSync(join(projectRoot, 'artifacts/apk-attestation.json'), JSON.stringify(attestation, null, 2));
 });
 
 test('security gate negative regression: validator rejects manifest with prohibited permissions', () => {

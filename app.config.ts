@@ -138,6 +138,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         customScheme: AUTH0_CUSTOM_SCHEME,
         domain: auth0?.domain ?? 'unconfigured.invalid',
       }],
+      // Must stay registered: Auth0 shares the samgamam scheme and strips the
+      // host-less app filter, so routed hosts are re-added on MainActivity.
+      './plugins/with-android-deep-links.cjs',
     ],
   };
 };
