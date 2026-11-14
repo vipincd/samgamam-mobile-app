@@ -70,7 +70,12 @@ const modes = new Set([
   'malformed',
 ]);
 
-function createMockServer() {
+// When a run id is configured (mock-manager always sets MOCK_RUN_ID), the
+// state-changing and state-revealing control endpoints only answer callers
+// that present the same id in `x-mock-run-id`. A runner that reaches a mock it
+// does not own (e.g. Android Maestro hitting an iOS-owned mock on 4318) gets
+// 409 instead of silently switching the owner's scenario.
+function createMockServer({ runId = process.env.MOCK_RUN_ID || null } = {}) {
   let mode = 'success';
   let rsvp = null;
   let riskRsvp = null;
@@ -106,9 +111,13 @@ function createMockServer() {
     if (url.pathname === '/__mock/health') {
       return send(200, {
         service: 'samgamam-acceptance-mock',
-        runId: process.env.MOCK_RUN_ID || null,
+        runId,
         pid: process.pid,
       });
+    }
+
+    if (runId && url.pathname.startsWith('/__mock/') && req.headers['x-mock-run-id'] !== runId) {
+      return sendError(409, 'mock_run_mismatch', 'Control request does not belong to the run that owns this mock');
     }
 
     if (url.pathname === '/__mock/reset' && req.method === 'POST') {

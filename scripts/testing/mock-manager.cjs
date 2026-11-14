@@ -26,6 +26,86 @@ function getDefaultLockPath() {
 
 const DEFAULT_LOCK_PATH = getDefaultLockPath();
 
+// Unique sibling path used for atomic writes. Only the creating call ever
+// removes it, so concurrent runners never delete each other's temp files.
+function uniqueSibling(lockPath, suffix) {
+  const token = `${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 10)}`;
+  return `${lockPath}.${token}.${suffix}`;
+}
+
+// Create the lock with its complete JSON payload in a single atomic step.
+// writeFileSync(..., { flag: 'wx' }) creates an empty file first, so a
+// concurrent reader could observe partial JSON and misreport an active lock as
+// malformed. link(2) publishes the fully-written temp file or fails EEXIST.
+function createLockAtomically(lockPath, payload) {
+  fs.mkdirSync(path.dirname(path.resolve(lockPath)), { recursive: true });
+  const tmp = uniqueSibling(lockPath, 'tmp');
+  fs.writeFileSync(tmp, payload, { flag: 'wx' });
+  try {
+    fs.linkSync(tmp, lockPath);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
+// Replace lock content atomically (rename is atomic on the same filesystem).
+function replaceLockAtomically(lockPath, payload) {
+  const tmp = uniqueSibling(lockPath, 'tmp');
+  fs.writeFileSync(tmp, payload, { flag: 'wx' });
+  try {
+    fs.renameSync(tmp, lockPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
+}
+
+const RECOVERY_GUARD_WAIT_MS = 3000;
+
+// Serialises every non-owner (stale-recovery) deletion of the lock. Without it,
+// two recoverers can interleave: B unlinks stale lock X, a new runner C
+// acquires Y, and A (which verified X earlier) unlinks Y. Inside the guard the
+// lock is re-read and verified, so the compare-and-delete cannot cross another
+// recoverer. mkdir(2) is atomic; the guard records its holder for diagnosis.
+async function withRecoveryGuard(lockPath, fn) {
+  const guardDir = `${lockPath}.recovery`;
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const deadline = Date.now() + RECOVERY_GUARD_WAIT_MS;
+  for (;;) {
+    try {
+      fs.mkdirSync(guardDir);
+      fs.writeFileSync(
+        path.join(guardDir, 'holder.json'),
+        JSON.stringify({ pid: process.pid, token, startedAt: new Date().toISOString() }),
+      );
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (Date.now() >= deadline) {
+        let holder = null;
+        try { holder = parseMetadata(fs.readFileSync(path.join(guardDir, 'holder.json'), 'utf8')); } catch {}
+        const alive = holder?.pid ? isPidAlive(holder.pid) : false;
+        throw new Error(
+          `[LOCK RECOVERY BUSY] Another stale-lock recovery holds ${guardDir} (holder pid: ${holder?.pid || 'unknown'}, alive: ${alive}, since: ${holder?.startedAt || 'unknown'}). ` +
+            (alive
+              ? 'Retry after it finishes.'
+              : 'Holder is not alive; after confirming no recovery is running, an operator may remove that directory manually.'),
+        );
+      }
+      await new Promise((r) => setTimeout(r, 25 + Math.floor(Math.random() * 50)));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    // Release only the guard this call created.
+    try {
+      const holder = parseMetadata(fs.readFileSync(path.join(guardDir, 'holder.json'), 'utf8'));
+      if (holder?.token === token) fs.rmSync(guardDir, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
 function parseMetadata(content) {
   try {
     return JSON.parse(content);
@@ -172,8 +252,7 @@ async function acquireLock({
   }, null, 2);
 
   try {
-    fs.mkdirSync(path.dirname(path.resolve(lockPath)), { recursive: true });
-    fs.writeFileSync(lockPath, payload, { flag: 'wx' });
+    createLockAtomically(lockPath, payload);
   } catch (err) {
     if (err.code === 'EEXIST') {
       throw new Error(
@@ -192,7 +271,7 @@ function updateLockMetadata({ lockPath = getDefaultLockPath(), runId, updates })
     const existing = parseMetadata(fs.readFileSync(lockPath, 'utf8'));
     if (!existing || existing.runId !== runId) return false;
     const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-    fs.writeFileSync(lockPath, JSON.stringify(updated, null, 2), 'utf8');
+    replaceLockAtomically(lockPath, JSON.stringify(updated, null, 2));
     return true;
   } catch {
     return false;
@@ -276,114 +355,117 @@ async function unlockLock({
     );
   }
 
-  // 4. Force unlock / stale-lock recovery path:
-  // Must verify inactivity across runner, mock server, health probe, and port occupancy.
-  const targetPort = existing.port || port || DEFAULT_PORT;
-  const runnerPid = existing.runnerPid;
-  const activeMockPid = existing.mockPid || existing.pid;
+  // 4. Force unlock / stale-lock recovery path. Everything from here runs inside
+  // the recovery guard so verification and deletion form one serialised
+  // compare-and-delete with respect to every other recoverer.
+  const alreadyGone = {
+    unlinked: false,
+    exists: false,
+    recovered: false,
+    reason: 'Lock was already unlinked concurrently.',
+  };
 
-  // A. Check runner liveness
-  if (runnerPid && isPidAlive(runnerPid)) {
-    throw new Error(
-      `[LOCK ACTIVE] Lock owner runner is actively running (platform: ${existing.platform || 'unknown'}, runnerPid: ${runnerPid}, runId: ${existing.runId}). Refusing to remove active lock.`,
-    );
-  }
-
-  // B. Check mock server process liveness
-  if (activeMockPid && isPidAlive(activeMockPid)) {
-    throw new Error(
-      `[LOCK ACTIVE] Mock server process is actively running (platform: ${existing.platform || 'unknown'}, mockPid: ${activeMockPid}, runId: ${existing.runId}). Refusing to remove active lock.`,
-    );
-  }
-
-  // C. Query mock HTTP health
-  const health = await queryMockHealth(targetPort);
-  if (
-    health?.status === 200 &&
-    health?.data?.service === 'samgamam-acceptance-mock' &&
-    health?.data?.runId === existing.runId
-  ) {
-    throw new Error(
-      `[LOCK ACTIVE] Mock server is actively responding on port ${targetPort} (runId: ${existing.runId}). Refusing to remove active lock.`,
-    );
-  }
-
-  // D. Ambiguity protection: if neither runnerPid nor activeMockPid was recorded
-  if (!runnerPid && !activeMockPid) {
-    throw new Error(
-      `[LOCK AMBIGUOUS] Lock metadata at ${lockPath} contains neither runnerPid nor mockPid. Inactivity cannot be safely verified. Refusing to remove ambiguous lock.`,
-    );
-  }
-
-  // E. Port check: never kill a foreign listener; refuse removal if port is occupied
-  const portStatus = await checkPort(targetPort);
-  if (portStatus.occupied) {
-    if (health?.data?.service === 'samgamam-acceptance-mock') {
+  return withRecoveryGuard(lockPath, async () => {
+    let current;
+    try {
+      current = parseMetadata(fs.readFileSync(lockPath, 'utf8'));
+    } catch (err) {
+      if (err.code === 'ENOENT') return alreadyGone;
+      throw err;
+    }
+    if (!current || typeof current !== 'object' || !current.runId) {
       throw new Error(
-        `[LOCK BUSY] Port ${targetPort} is occupied by active mock server (runId: ${health?.data?.runId || 'unknown'}). Refusing to remove lock.`,
+        `[LOCK ERROR] Lock at ${lockPath} contains malformed or unreadable metadata. Refusing to remove ambiguous lock without safe verification. Exiting fail-closed.`,
       );
     }
-    throw new Error(
-      `[PORT CONFLICT] Port ${targetPort} is occupied by foreign listener. Refusing to remove lock or disturb foreign process.`,
-    );
-  }
+    if (current.runId !== existing.runId) {
+      throw new Error(
+        `[LOCK CONFLICT] Lock at ${lockPath} changed concurrently during recovery verification (now held by runId: ${current.runId}). Aborting recovery.`,
+      );
+    }
 
-  // F. Protect against race conditions and concurrent recoveries:
-  // Re-verify the lock file hasn't changed between check and unlink
-  if (!fs.existsSync(lockPath)) {
+    const targetPort = current.port || port || DEFAULT_PORT;
+    const runnerPid = current.runnerPid;
+    const activeMockPid = current.mockPid || current.pid;
+
+    // A. Check runner liveness
+    if (runnerPid && isPidAlive(runnerPid)) {
+      throw new Error(
+        `[LOCK ACTIVE] Lock owner runner is actively running (platform: ${current.platform || 'unknown'}, runnerPid: ${runnerPid}, runId: ${current.runId}). Refusing to remove active lock.`,
+      );
+    }
+
+    // B. Check mock server process liveness
+    if (activeMockPid && isPidAlive(activeMockPid)) {
+      throw new Error(
+        `[LOCK ACTIVE] Mock server process is actively running (platform: ${current.platform || 'unknown'}, mockPid: ${activeMockPid}, runId: ${current.runId}). Refusing to remove active lock.`,
+      );
+    }
+
+    // C. Query mock HTTP health
+    const health = await queryMockHealth(targetPort);
+    if (
+      health?.status === 200 &&
+      health?.data?.service === 'samgamam-acceptance-mock' &&
+      health?.data?.runId === current.runId
+    ) {
+      throw new Error(
+        `[LOCK ACTIVE] Mock server is actively responding on port ${targetPort} (runId: ${current.runId}). Refusing to remove active lock.`,
+      );
+    }
+
+    // D. Ambiguity protection: if neither runnerPid nor activeMockPid was recorded
+    if (!runnerPid && !activeMockPid) {
+      throw new Error(
+        `[LOCK AMBIGUOUS] Lock metadata at ${lockPath} contains neither runnerPid nor mockPid. Inactivity cannot be safely verified. Refusing to remove ambiguous lock.`,
+      );
+    }
+
+    // E. Port check: never kill a foreign listener; refuse removal if port is occupied
+    const portStatus = await checkPort(targetPort);
+    if (portStatus.occupied) {
+      if (health?.data?.service === 'samgamam-acceptance-mock') {
+        throw new Error(
+          `[LOCK BUSY] Port ${targetPort} is occupied by active mock server (runId: ${health?.data?.runId || 'unknown'}). Refusing to remove lock.`,
+        );
+      }
+      throw new Error(
+        `[PORT CONFLICT] Port ${targetPort} is occupied by foreign listener. Refusing to remove lock or disturb foreign process.`,
+      );
+    }
+
+    // F. Final compare immediately before delete. No other recoverer can act
+    // while we hold the guard, and acquirers only create when the path is free.
+    let finalMeta;
+    try {
+      finalMeta = parseMetadata(fs.readFileSync(lockPath, 'utf8'));
+    } catch (err) {
+      if (err.code === 'ENOENT') return alreadyGone;
+      throw err;
+    }
+    if (!finalMeta || finalMeta.runId !== current.runId) {
+      throw new Error(
+        `[LOCK CONFLICT] Lock at ${lockPath} changed concurrently during recovery verification (now held by runId: ${finalMeta?.runId || 'unknown'}). Aborting recovery.`,
+      );
+    }
+
+    try {
+      fs.unlinkSync(lockPath);
+    } catch (err) {
+      if (err.code === 'ENOENT') return alreadyGone;
+      throw err;
+    }
+
+    const recoveryReason = `Verified inactive session (runId: ${current.runId}, platform: ${current.platform || 'unknown'}): runnerPid ${runnerPid || 'none'} dead, mockPid ${activeMockPid || 'none'} dead, port ${targetPort} unoccupied.`;
+    console.log(`[LOCK RECOVERED] Stale lock at ${lockPath} successfully recovered. Reason: ${recoveryReason}`);
+
     return {
-      unlinked: false,
-      exists: false,
-      recovered: false,
-      reason: 'Lock was already unlinked concurrently.',
+      unlinked: true,
+      recovered: true,
+      runId: current.runId,
+      reason: recoveryReason,
     };
-  }
-
-  let finalContent;
-  try {
-    finalContent = fs.readFileSync(lockPath, 'utf8');
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return {
-        unlinked: false,
-        exists: false,
-        recovered: false,
-        reason: 'Lock was already unlinked concurrently.',
-      };
-    }
-    throw err;
-  }
-
-  const finalMeta = parseMetadata(finalContent);
-  if (!finalMeta || finalMeta.runId !== existing.runId) {
-    throw new Error(
-      `[LOCK CONFLICT] Lock at ${lockPath} changed concurrently during recovery verification (now held by runId: ${finalMeta?.runId || 'unknown'}). Aborting recovery.`,
-    );
-  }
-
-  try {
-    fs.unlinkSync(lockPath);
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return {
-        unlinked: false,
-        exists: false,
-        recovered: false,
-        reason: 'Lock was already unlinked concurrently.',
-      };
-    }
-    throw err;
-  }
-
-  const recoveryReason = `Verified inactive session (runId: ${existing.runId}, platform: ${existing.platform || 'unknown'}): runnerPid ${runnerPid || 'none'} dead, mockPid ${activeMockPid || 'none'} dead, port ${targetPort} unoccupied.`;
-  console.log(`[LOCK RECOVERED] Stale lock at ${lockPath} successfully recovered. Reason: ${recoveryReason}`);
-
-  return {
-    unlinked: true,
-    recovered: true,
-    runId: existing.runId,
-    reason: recoveryReason,
-  };
+  });
 }
 
 async function startMock({

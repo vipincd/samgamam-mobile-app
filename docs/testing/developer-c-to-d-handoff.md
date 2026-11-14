@@ -1,5 +1,7 @@
 # SAMGAMAM — DEVELOPER C TO D — TEST ISOLATION HANDOFF
 
+> **Superseded 2026-11-14:** the current protocol (atomic lock writes, serialised stale recovery, run-id-gated mock control routes, `npm run test:android:acceptance`) is in [`agent-6-to-agent-7-lock-handoff.md`](agent-6-to-agent-7-lock-handoff.md). iOS runners must also send `x-mock-run-id` on `/__mock/*` control requests.
+
 **Date:** 2026-11-10  
 **From:** Developer C (Android Platform & Infrastructure Lead)  
 **To:** Developer D (iOS Platform Lead)  

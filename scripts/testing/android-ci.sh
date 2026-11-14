@@ -5,6 +5,8 @@ mkdir -p artifacts
 
 # Safe process ownership: generate unique run identifier
 RUN_ID="android-$(date +%s)-$$"
+export MOCK_RUN_ID="$RUN_ID"
+MOCK_OWNED=0
 OWNER_FILE="artifacts/mock-owner.json"
 
 cleanup() {
@@ -13,7 +15,10 @@ cleanup() {
     adb -s "$serial" logcat -d -b crash > artifacts/crash-logcat.txt 2>/dev/null || true
     adb -s "$serial" reverse --list > artifacts/adb-reverse.txt 2>/dev/null || true
   fi
-  curl -fsS http://127.0.0.1:4318/__mock/history > artifacts/mock-history.json 2>/dev/null || true
+  # Only collect history from the mock this run owns (never a foreign mock).
+  if [ "$MOCK_OWNED" = 1 ]; then
+    curl -fsS -H "x-mock-run-id: $RUN_ID" http://127.0.0.1:4318/__mock/history > artifacts/mock-history.json 2>/dev/null || true
+  fi
   
   # Terminate ONLY the owned mock server and release our lock
   node scripts/testing/mock-manager.cjs stop --run-id "$RUN_ID" --owner-file "$OWNER_FILE" --port 4318 2>/dev/null || true
@@ -22,6 +27,7 @@ trap cleanup EXIT INT TERM
 
 # Start owned mock server with cross-platform lock and fail-closed port protection
 node scripts/testing/mock-manager.cjs start --port 4318 --platform android --run-id "$RUN_ID" --owner-file "$OWNER_FILE" --runner-pid "$$"
+MOCK_OWNED=1
 
 curl -fsS http://127.0.0.1:4318/__mock/health > artifacts/mock-health.json
 
