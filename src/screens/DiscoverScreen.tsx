@@ -432,7 +432,7 @@ export function DiscoverScreen(props: {
             </View>
             <View style={styles.intro}>
               <Text style={styles.eyebrow}>DISCOVER YOUR COMMUNITY</Text>
-              <Text style={styles.heading} accessibilityRole="header">Find your next{"\n"}shared moment.</Text>
+              <Text style={styles.heading} accessibilityRole="header" maxFontSizeMultiplier={1.6}>Find your next{"\n"}shared moment.</Text>
               <Text style={styles.subtitle}>Good company is closer than you think.</Text>
             </View>
             <View style={styles.search}>

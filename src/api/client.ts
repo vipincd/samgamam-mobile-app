@@ -427,8 +427,9 @@ export class ApiClient {
 
     // An explicit Authorization header (the Auth0 token sent to /v1/auth/session)
     // must not be replaced by a stored, possibly expired, backend session token.
-    if (this.accessToken && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${this.accessToken}`);
+    const sentStoredToken = !headers.has('Authorization') ? this.accessToken : null;
+    if (sentStoredToken) {
+      headers.set('Authorization', `Bearer ${sentStoredToken}`);
     }
 
     const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -511,18 +512,26 @@ export class ApiClient {
       if (
         response.status === 401 &&
         !isRetry &&
-        this.accessToken &&
-        this.onTokenExpired &&
+        sentStoredToken &&
         endpoint !== '/auth/login' &&
         endpoint !== '/v1/auth/session'
       ) {
-        const refreshed = await this.onTokenExpired();
-        if (refreshed) {
+        if (this.accessToken && this.accessToken !== sentStoredToken) {
+          // Another request refreshed the session while this one was in flight.
           return this.request<T>(endpoint, options, true);
+        }
+        if (this.accessToken === sentStoredToken && this.onTokenExpired) {
+          const refreshed = await this.onTokenExpired();
+          if (refreshed) {
+            return this.request<T>(endpoint, options, true);
+          }
         }
       }
 
-      if (response.status === 401) {
+      // Only discard the token this request was rejected with, never a newer one.
+      // A rejected Auth0 exchange still clears whatever backend token is stored.
+      const rejectedStoredToken = sentStoredToken !== null && this.accessToken === sentStoredToken;
+      if (response.status === 401 && (rejectedStoredToken || endpoint === '/v1/auth/session')) {
         await this.setAccessToken(null);
       }
 
@@ -601,6 +610,24 @@ export class ApiClient {
     const sessionData = response.data;
     await this.setAccessToken(sessionData.accessToken);
     return sessionData;
+  }
+
+  // Revokes a backend session token that must not be kept (for example one
+  // issued by a refresh that finished after sign-out). Best effort.
+  async revokeSessionToken(token: string) {
+    try {
+      await this.request<{ data: { revoked: boolean } }>('/v1/auth/revoke', {
+        body: JSON.stringify({ token }),
+        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST',
+      });
+    } catch {
+      // The backend session expires on its own if revocation cannot be delivered.
+    } finally {
+      if (this.accessToken === token) {
+        await this.setAccessToken(null);
+      }
+    }
   }
 
   async login(email: string, password: string) {

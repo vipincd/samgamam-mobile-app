@@ -412,6 +412,33 @@ describe("Push Notifications & Device Registration Service", () => {
       id: "cold-start-event-1",
     });
   });
+
+  it("consumes the cold-start notification response so a remount or JS reload does not replay it", async () => {
+    const clear = (Notifications as unknown as { clearLastNotificationResponse: jest.Mock }).clearLastNotificationResponse;
+    (Notifications.getLastNotificationResponseAsync as jest.Mock).mockResolvedValueOnce({
+      notification: { request: { content: { data: { url: "samgamam://event/qa-event" } } } },
+    });
+    await expect(checkColdStartNotificationAsync()).resolves.toEqual({ type: "event", id: "qa-event" });
+    expect(clear).toHaveBeenCalledTimes(1);
+
+    // No response pending: nothing to clear, nothing to navigate to.
+    await expect(checkColdStartNotificationAsync()).resolves.toBeNull();
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { url: "https://evil.example/events/qa-event" },
+    { url: "samgamam://event/../me" },
+    { url: "samgamam://event/qa-event/extra" },
+    { url: "javascript:alert(1)" },
+    { entityType: "event", entityId: "../../v1/me" },
+    { entityType: "event", entityId: "qa%2Fevent" },
+  ])("rejects an untrusted cold-start notification payload %p", async (data) => {
+    (Notifications.getLastNotificationResponseAsync as jest.Mock).mockResolvedValueOnce({
+      notification: { request: { content: { data } } },
+    });
+    await expect(checkColdStartNotificationAsync()).resolves.toMatchObject({ type: "unknown" });
+  });
 });
 
 describe("Phase 5B Mobile Deep-Link Routing & Backend Integration", () => {

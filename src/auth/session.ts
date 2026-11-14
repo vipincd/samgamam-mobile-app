@@ -1,4 +1,5 @@
 import {
+  AuthenticationError,
   createAuthenticationClient,
   type AuthenticationClient,
   getSanitizedAuthMessage,
@@ -48,6 +49,10 @@ export class SessionManager {
   private listeners = new Set<AuthStateListener>();
   private auth0Client: AuthenticationClient | undefined;
   private refreshPromise: Promise<boolean> | null = null;
+  // Bumped by sign-in and sign-out so a refresh that started before either one
+  // cannot install a session afterwards.
+  private sessionGeneration = 0;
+  private signingOut = false;
 
   constructor(auth0ClientOverride?: AuthenticationClient) {
     try {
@@ -113,7 +118,12 @@ export class SessionManager {
       if (authSessionState.status === 'signed-in') {
         // Try restoring session from backend
         const restored = await this.restoreBackendSession();
-        if (restored) {
+        if (restored === 'restored') {
+          return this.state;
+        }
+        if (restored === 'transient') {
+          // Offline or backend unavailable: keep Auth0 credentials and the stored
+          // backend token so "Retry backend" (or the next launch) can recover.
           return this.state;
         }
       }
@@ -123,18 +133,17 @@ export class SessionManager {
       this.setState({ status: 'signedOut', session: defaultSession, errorMessage: null });
       return this.state;
     } catch (error) {
-      const errorMessage = getErrorMessage(error);
       this.setState({
         status: 'error',
         session: defaultSession,
-        errorMessage,
+        errorMessage: describeError(error),
       });
       return this.state;
     }
   }
 
-  private async restoreBackendSession(): Promise<boolean> {
-    if (!this.auth0Client) return false;
+  private async restoreBackendSession(): Promise<'restored' | 'transient' | 'rejected'> {
+    if (!this.auth0Client) return 'rejected';
 
     try {
       // Check if current stored token in apiClient is already valid
@@ -144,17 +153,17 @@ export class SessionManager {
           const session = normalizeSession(rawSession);
           if (session.authenticated) {
             this.setState({ status: 'signedIn', session, errorMessage: null });
-            return true;
+            return 'restored';
           }
         } catch (sessionError) {
           // Token might be expired, proceed to exchange
           if (!(sessionError instanceof ApiError && sessionError.status === 401)) {
-            // Network error
             this.setState({
               status: 'error',
-              errorMessage: getErrorMessage(sessionError),
+              session: defaultSession,
+              errorMessage: describeError(sessionError),
             });
-            return false;
+            return 'transient';
           }
         }
       }
@@ -173,10 +182,17 @@ export class SessionManager {
       });
 
       this.setState({ status: 'signedIn', session, errorMessage: null });
-      return true;
-    } catch {
-      // If exchange failed
-      return false;
+      return 'restored';
+    } catch (error) {
+      if (isTransientFailure(error)) {
+        this.setState({
+          status: 'error',
+          session: defaultSession,
+          errorMessage: describeError(error),
+        });
+        return 'transient';
+      }
+      return 'rejected';
     }
   }
 
@@ -185,6 +201,7 @@ export class SessionManager {
       throw new Error('Authentication provider is not configured.');
     }
 
+    this.sessionGeneration += 1;
     this.setState({ status: 'signingIn', errorMessage: null });
 
     try {
@@ -215,6 +232,8 @@ export class SessionManager {
   }
 
   async signOut(): Promise<void> {
+    this.sessionGeneration += 1;
+    this.signingOut = true;
     try {
       if (apiClient.hasStoredAccessToken()) {
         await apiClient.logout().catch(() => undefined);
@@ -224,6 +243,7 @@ export class SessionManager {
         await this.auth0Client.logout().catch(() => undefined);
       }
       await this.clearLocalSession();
+      this.signingOut = false;
       this.setState({
         status: 'signedOut',
         session: defaultSession,
@@ -233,6 +253,11 @@ export class SessionManager {
   }
 
   async handleTokenExpired(): Promise<boolean> {
+    // Never resurrect a session the user is signing out of.
+    if (this.signingOut) {
+      return false;
+    }
+
     // If a refresh is already in flight, await it
     if (this.refreshPromise) {
       return this.refreshPromise;
@@ -253,6 +278,7 @@ export class SessionManager {
       return false;
     }
 
+    const generation = this.sessionGeneration;
     this.setState({ status: 'refreshing' });
 
     try {
@@ -263,10 +289,20 @@ export class SessionManager {
       }
 
       // Re-establish session with backend
+      if (generation !== this.sessionGeneration) {
+        return false;
+      }
       const loginResponse = await apiClient.establishAuth0Session(
         credentials.accessToken,
         credentials.idToken,
       );
+
+      if (generation !== this.sessionGeneration) {
+        // Signed out (or a new sign-in started) while the exchange was in flight:
+        // revoke the session the backend just issued instead of installing it.
+        await apiClient.revokeSessionToken(loginResponse.accessToken);
+        return false;
+      }
 
       const session = normalizeSession({
         authenticated: true,
@@ -277,6 +313,9 @@ export class SessionManager {
       this.setState({ status: 'signedIn', session, errorMessage: null });
       return true;
     } catch {
+      if (generation !== this.sessionGeneration) {
+        return false;
+      }
       await this.clearLocalSession();
       this.setState({
         status: 'expired',
@@ -290,6 +329,17 @@ export class SessionManager {
   private async clearLocalSession() {
     await apiClient.clearStoredSession();
   }
+}
+
+function isTransientFailure(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.isNetworkError || error.isServerError;
+  }
+  return error instanceof AuthenticationError && error.kind === 'network';
+}
+
+function describeError(error: unknown): string {
+  return error instanceof AuthenticationError ? getSanitizedAuthMessage(error) : getErrorMessage(error);
 }
 
 export const sessionManager = new SessionManager();
