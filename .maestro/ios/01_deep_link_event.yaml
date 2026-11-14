@@ -1,0 +1,17 @@
+appId: com.samgamam.mobile
+# iOS-only: the samgamam:// custom scheme opens the matching event details.
+# Not part of the shared smoke/regression suites run on Android CI.
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- openLink: samgamam://event/qa-event
+- extendedWaitUntil:
+    visible: "Close details"
+    timeout: 20000
+- assertVisible: "Berlin Community Walk"
+- takeScreenshot: ios-deep-link-event
+- tapOn: "Close details"
+- assertVisible: "Search events"

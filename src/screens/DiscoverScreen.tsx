@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   Image,
   Linking,
   Modal,
@@ -146,6 +147,13 @@ export function DiscoverScreen(props: {
     },
     [locale]
   );
+
+  // Submitting a search closes the keyboard so the results (and the empty-state
+  // "Explore all" recovery) are not left underneath it.
+  function submitSearch() {
+    Keyboard.dismiss();
+    void loadEvents(query);
+  }
 
   const loadMoreEvents = useCallback(async () => {
     if (!hasNextPage || !nextCursor || loadingMore || loading || submittedQuery.trim()) {
@@ -432,7 +440,7 @@ export function DiscoverScreen(props: {
             </View>
             <View style={styles.intro}>
               <Text style={styles.eyebrow}>DISCOVER YOUR COMMUNITY</Text>
-              <Text style={styles.heading} accessibilityRole="header">Find your next{"\n"}shared moment.</Text>
+              <Text style={styles.heading} accessibilityRole="header" maxFontSizeMultiplier={1.6}>Find your next{"\n"}shared moment.</Text>
               <Text style={styles.subtitle}>Good company is closer than you think.</Text>
             </View>
             <View style={styles.search}>
@@ -446,14 +454,14 @@ export function DiscoverScreen(props: {
                 returnKeyType="search"
                 autoCorrect={false}
                 style={styles.searchInput}
-                onSubmitEditing={() => { void loadEvents(query); }}
+                onSubmitEditing={submitSearch}
               />
               {query ? (
                 <Pressable accessibilityLabel="Clear search" accessibilityRole="button" onPress={() => { setQuery(""); void loadEvents(""); }} style={styles.searchButton}>
                   <X size={17} color={brand.muted} />
                 </Pressable>
               ) : null}
-              <Pressable accessibilityLabel="Search" accessibilityRole="button" style={({ pressed }) => [styles.submit, pressed && { opacity: 0.7 }]} onPress={() => { void loadEvents(query); }}>
+              <Pressable accessibilityLabel="Search" accessibilityRole="button" style={({ pressed }) => [styles.submit, pressed && { opacity: 0.7 }]} onPress={submitSearch}>
                 <ArrowRight size={18} color="#FFF" />
               </Pressable>
             </View>

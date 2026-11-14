@@ -182,4 +182,272 @@ describe('SessionManager & Token Lifecycle', () => {
     expect(manager.getState().status).toBe('expired');
     expect(apiClient.hasStoredAccessToken()).toBe(false);
   });
+
+  it('7. refresh exchange sends the refreshed Auth0 token, not the expired backend token', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.getCredentials.mockResolvedValue({
+      accessToken: 'refreshed-auth0-access-token',
+      idToken: 'refreshed-id-token',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient); void manager;
+    await apiClient.setAccessToken('expired-backend-token');
+
+    const viewer = { id: 'user-1', email: 'user@example.com', fullName: 'Test User', roles: ['user'], emailVerified: true };
+    const json = (status: number, body: unknown) => ({
+      ok: status < 400,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => body,
+    });
+    const authorizations: [string, string | null][] = [];
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get('Authorization');
+      authorizations.push([url, authorization]);
+      if (url.endsWith('/v1/auth/session')) {
+        return authorization === 'Bearer refreshed-auth0-access-token'
+          ? json(200, { data: { accessToken: 'new-backend-token', locale: 'en', viewer }, meta: { requestId: 'req-exchange' } })
+          : json(401, { error: { code: 'invalid_access_token', message: 'A valid API access token is required.' } });
+      }
+      return authorization === 'Bearer new-backend-token'
+        ? json(200, { data: { viewer, locale: 'en' }, meta: { requestId: 'req-me' } })
+        : json(401, { error: { code: 'invalid_access_token', message: 'Token expired' } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    const profile = await apiClient.getViewerProfile();
+
+    expect(profile.data.viewer?.email).toBe('user@example.com');
+    expect(authorizations.map(([url, authorization]) => [url.replace(/^.*\/api/, ''), authorization])).toEqual([
+      ['/v1/me', 'Bearer expired-backend-token'],
+      ['/v1/auth/session', 'Bearer refreshed-auth0-access-token'],
+      ['/v1/me', 'Bearer new-backend-token'],
+    ]);
+    expect(manager.getState().status).toBe('signedIn');
+  });
+
+  const viewer = { id: 'user-1', email: 'user@example.com', fullName: 'Test User', roles: ['user'], emailVerified: true };
+  const json = (status: number, body: unknown) => ({
+    ok: status < 400,
+    status,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => body,
+  });
+
+  it('8. concurrent 401 responses share a single Auth0 refresh and backend exchange', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.getCredentials.mockResolvedValue({ accessToken: 'refreshed-auth0-access-token', idToken: 'refreshed-id-token' });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient); void manager;
+    await apiClient.setAccessToken('expired-backend-token');
+
+    let exchanges = 0;
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get('Authorization');
+      if (url.endsWith('/v1/auth/session')) {
+        exchanges += 1;
+        // Hold the exchange open so both callers observe the same in-flight refresh.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return json(200, { data: { accessToken: 'new-backend-token', locale: 'en', viewer }, meta: { requestId: 'req-exchange' } });
+      }
+      return authorization === 'Bearer new-backend-token'
+        ? json(200, { data: { viewer, locale: 'en' }, meta: { requestId: 'req-me' } })
+        : json(401, { error: { code: 'invalid_access_token', message: 'Token expired' } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    const [first, second] = await Promise.all([apiClient.getViewerProfile(), apiClient.getViewerProfile('de')]);
+
+    expect(first.data.viewer?.id).toBe('user-1');
+    expect(second.data.viewer?.id).toBe('user-1');
+    expect(mockAuth0.getCredentials).toHaveBeenCalledTimes(1);
+    expect(exchanges).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(manager.getState().status).toBe('signedIn');
+  });
+
+  it('9. a 401 after a successful refresh is not retried again and clears the stored token', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.getCredentials.mockResolvedValue({ accessToken: 'refreshed-auth0-access-token', idToken: 'refreshed-id-token' });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient); void manager;
+    await apiClient.setAccessToken('expired-backend-token');
+
+    const fetchMock = jest.fn(async (url: string) =>
+      url.endsWith('/v1/auth/session')
+        ? json(200, { data: { accessToken: 'new-backend-token', locale: 'en', viewer }, meta: { requestId: 'req-exchange' } })
+        : json(401, { error: { code: 'invalid_access_token', message: 'Token revoked', requestId: 'req-denied' } }),
+    );
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    await expect(apiClient.getViewerProfile()).rejects.toMatchObject({ status: 401, requestId: 'req-denied' });
+    // /v1/me, /v1/auth/session, retried /v1/me — then stop.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(mockAuth0.getCredentials).toHaveBeenCalledTimes(1);
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
+  });
+  const networkFailure = () => {
+    throw new TypeError('Network request failed');
+  };
+
+  it('10. offline launch keeps the stored session and recovers on retry instead of signing out', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.checkCredentials.mockResolvedValue({ status: 'signed-in' });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient);
+    await apiClient.setAccessToken('stored-backend-token');
+
+    const offlineFetch = jest.fn(async () => networkFailure());
+    (global as unknown as { fetch: typeof fetch }).fetch = offlineFetch as never;
+
+    const offline = await manager.initialize();
+    expect(offline.status).toBe('error');
+    expect(offline.errorMessage).toMatch(/Unable to reach Samgamam/);
+    // The backend token and Auth0 credentials survive a transient outage.
+    expect(apiClient.hasStoredAccessToken()).toBe(true);
+    expect(mockAuth0.logout).not.toHaveBeenCalled();
+    expect(mockAuth0.getCredentials).not.toHaveBeenCalled();
+
+    const onlineFetch = jest.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toMatch(/\/v1\/me$/);
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer stored-backend-token');
+      return json(200, { data: { viewer, locale: 'en' }, meta: { requestId: 'req-me' } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = onlineFetch as never;
+
+    const online = await manager.initialize();
+    expect(online.status).toBe('signedIn');
+    expect(online.session.viewer?.id).toBe('user-1');
+    expect(onlineFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('11. a network failure during the launch exchange reports an error and does not sign out', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.checkCredentials.mockResolvedValue({ status: 'signed-in' });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient);
+    await apiClient.clearStoredSession();
+    (global as unknown as { fetch: typeof fetch }).fetch = jest.fn(async () => networkFailure()) as never;
+
+    const result = await manager.initialize();
+    expect(result.status).toBe('error');
+    expect(result.errorMessage).toMatch(/Unable to reach Samgamam/);
+    expect(mockAuth0.logout).not.toHaveBeenCalled();
+  });
+
+  it('12. an exchange the backend rejects (401) still signs out on launch', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.checkCredentials.mockResolvedValue({ status: 'signed-in' });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient);
+    await apiClient.setAccessToken('stored-backend-token');
+    (global as unknown as { fetch: typeof fetch }).fetch = jest.fn(async () =>
+      json(401, { error: { code: 'invalid_access_token', message: 'Token expired' } }),
+    ) as never;
+
+    const result = await manager.initialize();
+    expect(result.status).toBe('signedOut');
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
+  });
+
+  it('13. a late 401 for a token that was already replaced retries with the new token without a second refresh', async () => {
+    jest.restoreAllMocks();
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient); void manager;
+    await apiClient.setAccessToken('old-backend-token');
+
+    let releaseOld: () => void = () => undefined;
+    const oldResponse = new Promise<void>((resolve) => { releaseOld = resolve; });
+    const authorizations: (string | null)[] = [];
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get('Authorization');
+      authorizations.push(authorization);
+      if (authorization === 'Bearer old-backend-token') {
+        await oldResponse;
+        return json(401, { error: { code: 'invalid_access_token', message: 'Token expired' } });
+      }
+      return json(200, { data: { viewer, locale: 'en' }, meta: { requestId: 'req-me' } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    const pending = apiClient.getViewerProfile();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Another request already refreshed the session while this one was in flight.
+    await apiClient.setAccessToken('new-backend-token');
+    releaseOld();
+
+    const profile = await pending;
+    expect(profile.data.viewer?.id).toBe('user-1');
+    expect(authorizations).toEqual(['Bearer old-backend-token', 'Bearer new-backend-token']);
+    expect(mockAuth0.getCredentials).not.toHaveBeenCalled();
+    expect(apiClient.hasStoredAccessToken()).toBe(true);
+  });
+
+  it('14. logout during an in-flight refresh wins: no session survives and the late token is revoked', async () => {
+    jest.restoreAllMocks();
+    mockAuth0.getCredentials.mockResolvedValue({ accessToken: 'refreshed-auth0-access-token', idToken: 'refreshed-id-token' });
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient);
+    await apiClient.setAccessToken('expired-backend-token');
+
+    let releaseExchange: () => void = () => undefined;
+    const exchangeGate = new Promise<void>((resolve) => { releaseExchange = resolve; });
+    let exchangeStarted: () => void = () => undefined;
+    const exchangeSeen = new Promise<void>((resolve) => { exchangeStarted = resolve; });
+    const revoked: string[] = [];
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/auth/session')) {
+        exchangeStarted();
+        await exchangeGate;
+        return json(200, { data: { accessToken: 'late-backend-token', locale: 'en', viewer }, meta: { requestId: 'req-exchange' } });
+      }
+      if (url.endsWith('/v1/auth/revoke')) {
+        revoked.push(JSON.parse(String(init?.body)).token);
+        return json(200, { data: { revoked: true } });
+      }
+      return json(401, { error: { code: 'invalid_access_token', message: 'Token expired' } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    const pending = apiClient.getViewerProfile();
+    await exchangeSeen;
+    await manager.signOut();
+    releaseExchange();
+
+    await expect(pending).rejects.toMatchObject({ status: 401 });
+    expect(manager.getState().status).toBe('signedOut');
+    expect(manager.getState().session.authenticated).toBe(false);
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
+    expect(revoked).toEqual(['expired-backend-token', 'late-backend-token']);
+  });
+
+  it('15. a 401 arriving after logout does not start an Auth0 refresh', async () => {
+    jest.restoreAllMocks();
+    const manager = new SessionManager(mockAuth0 as unknown as AuthenticationClient);
+    await apiClient.setAccessToken('backend-token');
+
+    let releaseMe: () => void = () => undefined;
+    const meGate = new Promise<void>((resolve) => { releaseMe = resolve; });
+    const fetchMock = jest.fn(async (url: string) => {
+      if (url.endsWith('/v1/me')) {
+        await meGate;
+        return json(401, { error: { code: 'invalid_access_token', message: 'Token revoked' } });
+      }
+      return json(200, { data: { revoked: true } });
+    });
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as never;
+
+    const pending = apiClient.getViewerProfile();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await manager.signOut();
+    releaseMe();
+
+    await expect(pending).rejects.toMatchObject({ status: 401 });
+    expect(mockAuth0.getCredentials).not.toHaveBeenCalled();
+    expect(manager.getState().status).toBe('signedOut');
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
+  });
+  it('16. revoking a stale token that the backend rejects does not clear the current session token', async () => {
+    jest.restoreAllMocks();
+    await apiClient.setAccessToken('current-backend-token');
+    (global as unknown as { fetch: typeof fetch }).fetch = jest.fn(async () =>
+      json(401, { error: { code: 'invalid_access_token', message: 'Token revoked' } }),
+    ) as never;
+
+    await apiClient.revokeSessionToken('stale-backend-token');
+    expect(apiClient.hasStoredAccessToken()).toBe(true);
+  });
 });
