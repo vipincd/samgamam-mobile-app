@@ -49,12 +49,34 @@ const highOrCritical = advisories.filter((item) =>
   item.severity === "high" || item.severity === "critical",
 );
 
+// Fail closed if npm counts high/critical findings that the advisory walk above
+// could not attribute (e.g. an unexpected report shape), instead of passing.
+const reportedHighOrCritical =
+  Number(audit.metadata.vulnerabilities.high ?? 0) + Number(audit.metadata.vulnerabilities.critical ?? 0);
+if (reportedHighOrCritical > 0 && highOrCritical.length === 0) {
+  console.error(
+    `npm audit reports ${reportedHighOrCritical} high/critical package(s) but no attributable advisory; failing closed.`,
+  );
+  process.exit(1);
+}
+
 if (highOrCritical.length > 0) {
   console.error('High/critical npm advisories are not permitted:');
   for (const advisory of highOrCritical) {
     console.error(`- ${advisory.packageName}: ${advisory.ghsa || advisory.title} (${advisory.severity})`);
   }
   process.exit(1);
+}
+
+// Print every advisory ID so moderate/low drift is visible in CI evidence; the
+// counts alone hid four new node-forge advisories between reviews.
+const inventory = new Map();
+for (const advisory of advisories) {
+  const key = `${advisory.packageName} ${advisory.ghsa || advisory.title || advisory.url || "unknown"}`;
+  inventory.set(key, advisory.severity);
+}
+for (const [key, severity] of [...inventory].sort(([a], [b]) => a.localeCompare(b))) {
+  console.log(`- ${severity}: ${key}`);
 }
 
 const metadata = audit.metadata?.vulnerabilities ?? {};

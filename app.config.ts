@@ -7,6 +7,53 @@ export const IOS_BUNDLE_IDENTIFIER = 'com.samgamam.mobile';
 export const ANDROID_PACKAGE = 'com.samgamam.mobile';
 export const CANONICAL_PRODUCTION_API_URL = 'https://samgamam.com';
 export const ALLOWED_PRODUCTION_HOSTS = new Set(['samgamam.com', 'api.samgamam.com']);
+export const BLOCKED_ANDROID_PERMISSIONS = [
+  'android.permission.RECORD_AUDIO',
+  'android.permission.SYSTEM_ALERT_WINDOW',
+  'android.permission.READ_EXTERNAL_STORAGE',
+  'android.permission.WRITE_EXTERNAL_STORAGE',
+  // Merged from expo-secure-store's library manifest for requireAuthentication.
+  // Samgamam never requests biometric-gated keychain items (guarded by
+  // tests/security/native-capabilities.test.cjs), so these stay out of the APK.
+  'android.permission.USE_BIOMETRIC',
+  'android.permission.USE_FINGERPRINT',
+] as const;
+
+// Build-time manifest hardening lives in plugins/ because this module is also
+// imported by the app bundle (src/auth/config.ts) and must stay Node-free.
+export const ANDROID_COMPONENT_REMOVALS_PLUGIN = './plugins/android-component-removals.js';
+
+export type AppTransportSecurityConfig = {
+  NSAllowsArbitraryLoads: false;
+  NSAllowsLocalNetworking: boolean;
+};
+
+// Local networking is an allow-list, not "anything except production": preview,
+// staging, typos and any future profile fail closed. An unset APP_ENV is the
+// documented local-development default (validateAppEnvironment), so `expo run:ios`
+// against localhost keeps working; every EAS profile pins APP_ENV explicitly
+// (enforced in app.config.test.ts).
+export function allowsLocalNetworking(
+  environment: PublicEnvironment = process.env,
+): boolean {
+  if (isProductionEnvironment(environment)) {
+    return false;
+  }
+  if (environment.EXPO_PUBLIC_LOCAL_ACCEPTANCE === '1') {
+    return true;
+  }
+  const appEnv = (environment.APP_ENV?.trim() || 'development').toLowerCase();
+  return appEnv === 'development';
+}
+
+export function resolveAppTransportSecurity(
+  environment: PublicEnvironment = process.env,
+): AppTransportSecurityConfig {
+  return {
+    NSAllowsArbitraryLoads: false,
+    NSAllowsLocalNetworking: allowsLocalNetworking(environment),
+  };
+}
 
 type PublicEnvironment = Record<string, string | undefined>;
 
@@ -125,13 +172,24 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...base.android,
       package: ANDROID_PACKAGE,
+      blockedPermissions: Array.from(
+        new Set([
+          ...(base.android?.blockedPermissions ?? []),
+          ...BLOCKED_ANDROID_PERMISSIONS,
+        ]),
+      ),
     },
     ios: {
       ...base.ios,
       bundleIdentifier: IOS_BUNDLE_IDENTIFIER,
+      infoPlist: {
+        ...base.ios?.infoPlist,
+        NSAppTransportSecurity: resolveAppTransportSecurity(process.env),
+      },
     },
     plugins: [
       ...(base.plugins ?? []),
+      ANDROID_COMPONENT_REMOVALS_PLUGIN,
       // The native Auth0 library requires manifest placeholders even when login
       // is not configured. The reserved .invalid domain cannot reach a tenant.
       ['react-native-auth0', {

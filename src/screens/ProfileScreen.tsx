@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   RefreshControl,
@@ -125,90 +125,117 @@ export function ProfileScreen(props: {
     }
   }
 
-  async function loadDashboard(isRefresh = false) {
-    if (!props.isFocused) {
-      return;
-    }
-    const thisGen = ++dashboardGen.current;
+  const isOrganizerOrAdmin = Boolean(
+    props.session.viewer?.roles.includes('organizer') ||
+    props.session.viewer?.roles.includes('admin')
+  );
+  const isAuthenticated = props.session.authenticated;
 
-    if (isRefresh) {
-      setRefreshing(true);
-    }
+  const loadDashboard = useCallback(
+    async (isRefresh = false, isCancelled?: () => boolean) => {
+      if (!props.isFocused) {
+        return;
+      }
+      const thisGen = ++dashboardGen.current;
 
-    setDashboardError(null);
+      if (isRefresh) {
+        setRefreshing(true);
+      }
 
-    try {
-      const health = await apiClient.healthCheck();
-      setHealthMessage(`Connected to ${health.service} · ${formatDateTime(health.timestamp, props.locale)}`);
-    } catch (healthError) {
-      setHealthMessage(null);
-      setDashboardError(getErrorMessage(healthError));
-    }
+      setDashboardError(null);
 
-    if (!props.session.authenticated) {
-      setNotifications([]);
-      setUnreadCount(0);
-      setRecommendations(null);
-      setInterestModel(null);
-      setAnalytics(null);
+      try {
+        const health = await apiClient.healthCheck();
+        if (thisGen !== dashboardGen.current || isCancelled?.()) {
+          return;
+        }
+        setHealthMessage(`Connected to ${health.service} · ${formatDateTime(health.timestamp, props.locale)}`);
+      } catch (healthError) {
+        if (thisGen !== dashboardGen.current || isCancelled?.()) {
+          return;
+        }
+        setHealthMessage(null);
+        setDashboardError(getErrorMessage(healthError));
+      }
+
+      if (!isAuthenticated) {
+        if (thisGen !== dashboardGen.current || isCancelled?.()) {
+          return;
+        }
+        setNotifications([]);
+        setUnreadCount(0);
+        setRecommendations(null);
+        setInterestModel(null);
+        setAnalytics(null);
+        setRefreshing(false);
+        return;
+      }
+
+      const promises = await Promise.allSettled([
+        apiClient.getNotifications(),
+        apiClient.getRecommendations(3),
+        apiClient.getInterests(),
+        isOrganizerOrAdmin ? apiClient.getAnalytics() : Promise.resolve(null),
+        isOrganizerOrAdmin ? apiClient.getGroups() : Promise.resolve(null),
+      ]);
+
+      if (thisGen !== dashboardGen.current || !isAuthenticated || isCancelled?.()) {
+        return;
+      }
+      const [notificationsResult, recommendationsResult, interestsResult, analyticsResult, groupsResult] = promises;
+
+      if (groupsResult && groupsResult.status === "fulfilled" && groupsResult.value) {
+        setOrganizerGroups(groupsResult.value.groups || []);
+      }
+
+      if (notificationsResult.status === 'fulfilled') {
+        setNotifications(notificationsResult.value.notifications);
+        setUnreadCount(notificationsResult.value.unreadCount);
+      } else {
+        setDashboardError(getErrorMessage(notificationsResult.reason));
+      }
+
+      if (recommendationsResult.status === 'fulfilled') {
+        setRecommendations(recommendationsResult.value);
+      } else {
+        setDashboardError((currentValue) => currentValue ?? getErrorMessage(recommendationsResult.reason));
+      }
+
+      if (interestsResult.status === 'fulfilled') {
+        setInterestModel(interestsResult.value.model);
+      } else {
+        setDashboardError((currentValue) => currentValue ?? getErrorMessage(interestsResult.reason));
+      }
+
+      if (analyticsResult.status === 'fulfilled' && analyticsResult.value) {
+        setAnalytics(analyticsResult.value);
+      } else if (analyticsResult.status === 'rejected') {
+        setDashboardError((currentValue) => currentValue ?? getErrorMessage(analyticsResult.reason));
+      } else {
+        setAnalytics(null);
+      }
+
       setRefreshing(false);
-      return;
-    }
+    },
+    [
+      props.isFocused,
+      props.locale,
+      isAuthenticated,
+      isOrganizerOrAdmin,
+    ],
+  );
 
-    const promises = await Promise.allSettled([
-      apiClient.getNotifications(),
-      apiClient.getRecommendations(3),
-      apiClient.getInterests(),
-      props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin')
-        ? apiClient.getAnalytics()
-        : Promise.resolve(null),
-      props.session.viewer?.roles.includes('organizer') || props.session.viewer?.roles.includes('admin')
-        ? apiClient.getGroups()
-        : Promise.resolve(null),
-    ]);
-
-    if (thisGen !== dashboardGen.current || !props.session.authenticated) {
-      return;
-    }
-    const [notificationsResult, recommendationsResult, interestsResult, analyticsResult, groupsResult] = promises;
-
-    if (groupsResult && groupsResult.status === "fulfilled" && groupsResult.value) {
-      setOrganizerGroups(groupsResult.value.groups || []);
-    }
-
-    if (notificationsResult.status === 'fulfilled') {
-      setNotifications(notificationsResult.value.notifications);
-      setUnreadCount(notificationsResult.value.unreadCount);
-    } else {
-      setDashboardError(getErrorMessage(notificationsResult.reason));
-    }
-
-    if (recommendationsResult.status === 'fulfilled') {
-      setRecommendations(recommendationsResult.value);
-    } else {
-      setDashboardError((currentValue) => currentValue ?? getErrorMessage(recommendationsResult.reason));
-    }
-
-    if (interestsResult.status === 'fulfilled') {
-      setInterestModel(interestsResult.value.model);
-    } else {
-      setDashboardError((currentValue) => currentValue ?? getErrorMessage(interestsResult.reason));
-    }
-
-    if (analyticsResult.status === 'fulfilled' && analyticsResult.value) {
-      setAnalytics(analyticsResult.value);
-    } else if (analyticsResult.status === 'rejected') {
-      setDashboardError((currentValue) => currentValue ?? getErrorMessage(analyticsResult.reason));
-    } else {
-      setAnalytics(null);
-    }
-
-    setRefreshing(false);
-  }
-
+  // Reload when the signed-in identity changes even if authentication never
+  // drops (account switch / session reconciliation): otherwise the previous
+  // viewer's notifications and recommendations stay on screen.
+  const viewerId = props.session.viewer?.id ?? null;
   useEffect(() => {
-    void loadDashboard();
-  }, [props.isFocused, props.locale, props.session.authenticated, props.session.viewer?.id]);
+    let cancelled = false;
+    void loadDashboard(false, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDashboard, viewerId]);
 
   async function handleLogin() {
     setAuthLoading(true);
