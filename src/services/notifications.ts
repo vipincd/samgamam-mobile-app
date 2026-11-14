@@ -196,6 +196,14 @@ export async function checkColdStartNotificationAsync(): Promise<NavigationTarge
   try {
     const lastResponse = await Notifications.getLastNotificationResponseAsync();
     if (lastResponse) {
+      // Consume the launch response: expo-notifications otherwise keeps returning
+      // it, so a remount or JS reload would navigate to the same target again.
+      const emitter = Notifications as { clearLastNotificationResponse?: () => void };
+      try {
+        emitter.clearLastNotificationResponse?.();
+      } catch {
+        // Clearing is best effort; navigation still uses the validated target.
+      }
       const data = lastResponse?.notification?.request?.content?.data;
       return parseNotificationData(data);
     }
