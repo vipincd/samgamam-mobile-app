@@ -225,13 +225,17 @@ export function ProfileScreen(props: {
     ],
   );
 
+  // Reload when the signed-in identity changes even if authentication never
+  // drops (account switch / session reconciliation): otherwise the previous
+  // viewer's notifications and recommendations stay on screen.
+  const viewerId = props.session.viewer?.id ?? null;
   useEffect(() => {
     let cancelled = false;
     void loadDashboard(false, () => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [loadDashboard]);
+  }, [loadDashboard, viewerId]);
 
   async function handleLogin() {
     setAuthLoading(true);

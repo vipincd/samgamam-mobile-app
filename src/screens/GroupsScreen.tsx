@@ -202,21 +202,20 @@ export function GroupsScreen(props: {
       const thisGen = ++discussionsGen.current;
       setDiscussionForbidden(false);
 
-      if (!props.authenticated) {
-        setDiscussions([]);
-        setNotice("Sign in to read and post in community discussions.");
-        return;
-      }
+      const lockedNotice = !props.authenticated
+        ? "Sign in to read and post in community discussions."
+        : group.viewerMembershipStatus === "pending"
+          ? "Your membership request is pending approval by group organizers."
+          : group.viewerMembershipStatus !== "active"
+            ? "This circle is visible to the community, but discussions are reserved for active members."
+            : null;
 
-      if (group.viewerMembershipStatus === "pending") {
+      if (lockedNotice) {
+        // Bumping the generation above makes any in-flight request skip its own
+        // cleanup, so this branch must clear the spinner itself.
+        setDiscussionLoading(false);
         setDiscussions([]);
-        setNotice("Your membership request is pending approval by group organizers.");
-        return;
-      }
-
-      if (group.viewerMembershipStatus !== "active") {
-        setDiscussions([]);
-        setNotice("This circle is visible to the community, but discussions are reserved for active members.");
+        setNotice(lockedNotice);
         return;
       }
 
@@ -300,10 +299,9 @@ export function GroupsScreen(props: {
       );
 
       if (updated.viewerMembershipStatus === "active") {
+        // The discussions effect reloads when the selected group's membership
+        // changes; calling loadDiscussions here as well fired a duplicate request.
         setNotice("You joined " + updated.name + "! Member discussions are now unlocked.");
-        if (selectedGroupId === updated.id) {
-          void loadDiscussions(updated);
-        }
       } else if (updated.viewerMembershipStatus === "pending") {
         setNotice("Your request to join " + updated.name + " is pending organizer approval.");
         if (selectedGroupId === updated.id) {

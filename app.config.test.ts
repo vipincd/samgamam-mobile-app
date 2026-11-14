@@ -1,11 +1,19 @@
 import appConfig, {
   BLOCKED_ANDROID_PERMISSIONS,
+  ANDROID_COMPONENT_REMOVALS_PLUGIN,
   CANONICAL_PRODUCTION_API_URL,
   readOptionalAuth0Configuration,
   resolveAppTransportSecurity,
   validateAppEnvironment,
   validateProductionApiUrl,
 } from './app.config';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const componentRemovals = require('./plugins/android-component-removals.js') as {
+  applyAndroidComponentRemovals: (manifest: unknown) => unknown;
+  REMOVED_ANDROID_COMPONENTS: readonly { tag: string; name: string }[];
+};
+const { applyAndroidComponentRemovals, REMOVED_ANDROID_COMPONENTS } = componentRemovals;
 
 const completeEnvironment = {
   APP_ENV: 'production',
@@ -225,5 +233,105 @@ describe('Android permission hardening', () => {
   it('ensures camera is the only requested dangerous permission in android.permissions', () => {
     const config = appConfig({ config: {} } as never);
     expect(config.android?.permissions).toEqual(['android.permission.CAMERA']);
+  });
+});
+
+describe('MOB-01 release network and component hardening (2026-11-14 review)', () => {
+  const originalEnvironment = process.env;
+
+  afterEach(() => {
+    process.env = originalEnvironment;
+  });
+
+  it.each([
+    ['preview', { APP_ENV: 'preview' }],
+    ['staging', { APP_ENV: 'staging' }],
+    ['mixed-case production', { ...completeEnvironment, APP_ENV: 'Production' }],
+    ['typo of development', { APP_ENV: 'develop' }],
+  ])('keeps NSAllowsLocalNetworking disabled for non-development APP_ENV (%s)', (_label, environment) => {
+    expect(resolveAppTransportSecurity(environment)).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: false,
+    });
+  });
+
+  it('keeps local networking for an unset APP_ENV so `expo run:ios` against localhost keeps working', () => {
+    expect(resolveAppTransportSecurity({}).NSAllowsLocalNetworking).toBe(true);
+  });
+
+  it('injects disabled local networking into the generated preview iOS configuration', () => {
+    process.env = { ...originalEnvironment, APP_ENV: 'preview' };
+    const config = appConfig({ config: {} } as never);
+    expect(config.ios?.infoPlist?.NSAppTransportSecurity).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: false,
+    });
+  });
+
+  it('blocks biometric permissions that expo-secure-store adds but the app never uses', () => {
+    const config = appConfig({ config: {} } as never);
+    expect(config.android?.blockedPermissions).toEqual(
+      expect.arrayContaining(['android.permission.USE_BIOMETRIC', 'android.permission.USE_FINGERPRINT']),
+    );
+  });
+
+  it('removes the exported Compose PreviewActivity that dev-client tooling merges into release builds', () => {
+    const manifest = {
+      manifest: {
+        $: { 'xmlns:android': 'http://schemas.android.com/apk/res/android' },
+        application: [{ $: { 'android:name': '.MainApplication' }, activity: [{ $: { 'android:name': '.MainActivity' } }] }],
+      },
+    };
+    const hardened = applyAndroidComponentRemovals(manifest as never) as typeof manifest;
+    expect(hardened.manifest.$['xmlns:tools' as never]).toBe('http://schemas.android.com/tools');
+    expect(hardened.manifest.application[0].activity).toContainEqual({
+      $: { 'android:name': 'androidx.compose.ui.tooling.PreviewActivity', 'tools:node': 'remove' },
+    });
+    // Idempotent across repeated prebuilds.
+    const again = applyAndroidComponentRemovals(hardened as never) as typeof manifest;
+    expect(
+      again.manifest.application[0].activity.filter((a) => a.$['android:name'] === 'androidx.compose.ui.tooling.PreviewActivity'),
+    ).toHaveLength(1);
+    for (const component of REMOVED_ANDROID_COMPONENTS) {
+      expect(component.name).not.toMatch(/^com\.samgamam\./);
+    }
+  });
+
+  it('registers the component-removal plugin in every environment', () => {
+    for (const environment of [{ APP_ENV: 'development' }, { APP_ENV: 'preview' }, completeEnvironment]) {
+      process.env = { ...originalEnvironment, ...environment };
+      expect(appConfig({ config: {} } as never).plugins).toContain(ANDROID_COMPONENT_REMOVALS_PLUGIN);
+    }
+  });
+});
+
+describe('EAS build profiles never ship development networking', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const eas = require('./eas.json') as {
+    build: Record<string, { developmentClient?: boolean; env?: Record<string, string> }>;
+  };
+
+  it('pins APP_ENV explicitly on every profile', () => {
+    for (const [name, profile] of Object.entries(eas.build)) {
+      expect({ name, appEnv: profile.env?.APP_ENV?.trim() }).toEqual({ name, appEnv: expect.any(String) });
+    }
+  });
+
+  it('only the development profile is a development client with local networking', () => {
+    for (const [name, profile] of Object.entries(eas.build)) {
+      const environment = profile.env ?? {};
+      const localNetworking = resolveAppTransportSecurity(environment).NSAllowsLocalNetworking;
+      if (name === 'development') {
+        expect(profile.developmentClient).toBe(true);
+        expect(localNetworking).toBe(true);
+      } else {
+        expect({ name, developmentClient: Boolean(profile.developmentClient), localNetworking }).toEqual({
+          name,
+          developmentClient: false,
+          localNetworking: false,
+        });
+        expect(environment.EXPO_PUBLIC_LOCAL_ACCEPTANCE).toBeUndefined();
+      }
+    }
   });
 });

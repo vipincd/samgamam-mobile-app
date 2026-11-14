@@ -12,20 +12,46 @@ export const BLOCKED_ANDROID_PERMISSIONS = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.READ_EXTERNAL_STORAGE',
   'android.permission.WRITE_EXTERNAL_STORAGE',
+  // Merged from expo-secure-store's library manifest for requireAuthentication.
+  // Samgamam never requests biometric-gated keychain items (guarded by
+  // tests/security/native-capabilities.test.cjs), so these stay out of the APK.
+  'android.permission.USE_BIOMETRIC',
+  'android.permission.USE_FINGERPRINT',
 ] as const;
+
+// Build-time manifest hardening lives in plugins/ because this module is also
+// imported by the app bundle (src/auth/config.ts) and must stay Node-free.
+export const ANDROID_COMPONENT_REMOVALS_PLUGIN = './plugins/android-component-removals.js';
 
 export type AppTransportSecurityConfig = {
   NSAllowsArbitraryLoads: false;
   NSAllowsLocalNetworking: boolean;
 };
 
+// Local networking is an allow-list, not "anything except production": preview,
+// staging, typos and any future profile fail closed. An unset APP_ENV is the
+// documented local-development default (validateAppEnvironment), so `expo run:ios`
+// against localhost keeps working; every EAS profile pins APP_ENV explicitly
+// (enforced in app.config.test.ts).
+export function allowsLocalNetworking(
+  environment: PublicEnvironment = process.env,
+): boolean {
+  if (isProductionEnvironment(environment)) {
+    return false;
+  }
+  if (environment.EXPO_PUBLIC_LOCAL_ACCEPTANCE === '1') {
+    return true;
+  }
+  const appEnv = (environment.APP_ENV?.trim() || 'development').toLowerCase();
+  return appEnv === 'development';
+}
+
 export function resolveAppTransportSecurity(
   environment: PublicEnvironment = process.env,
 ): AppTransportSecurityConfig {
-  const isProd = isProductionEnvironment(environment);
   return {
     NSAllowsArbitraryLoads: false,
-    NSAllowsLocalNetworking: !isProd,
+    NSAllowsLocalNetworking: allowsLocalNetworking(environment),
   };
 }
 
@@ -163,6 +189,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       ...(base.plugins ?? []),
+      ANDROID_COMPONENT_REMOVALS_PLUGIN,
       // The native Auth0 library requires manifest placeholders even when login
       // is not configured. The reserved .invalid domain cannot reach a tenant.
       ['react-native-auth0', {

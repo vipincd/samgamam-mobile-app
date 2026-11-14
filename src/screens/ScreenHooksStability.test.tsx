@@ -303,3 +303,168 @@ describe('Screen Hooks Stability and Race Condition Guards', () => {
     });
   });
 });
+
+describe('MOB-01 security review regressions (2026-11-14)', () => {
+  const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+
+  const baseGroup: GroupSummary = {
+    id: 'group-a',
+    name: 'Group Alpha',
+    description: 'Alpha circle',
+    city: 'Berlin',
+    languages: ['en'],
+    category: 'tech',
+    tags: [],
+    memberCount: 10,
+    requiresApproval: false,
+    discussionCount: 1,
+    viewerMembershipStatus: 'active',
+    viewerMembershipRole: 'member',
+  };
+  const activeGroup = baseGroup;
+  const pendingGroup: GroupSummary = { ...baseGroup, id: 'group-p', name: 'Group Pending', viewerMembershipStatus: 'pending' };
+  const openGroup: GroupSummary = { ...baseGroup, id: 'group-o', name: 'Group Open', viewerMembershipStatus: null, viewerMembershipRole: null };
+
+  const renderedText = (tree: ReturnType<typeof create>) =>
+    tree.root
+      .findAll((node) => typeof node.props.children === 'string')
+      .map((node) => node.props.children)
+      .join(' ');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('does not leave the discussion spinner stuck after switching from a loading group to a pending group', async () => {
+    mockApi.getGroups.mockResolvedValue({
+      groups: [activeGroup, pendingGroup],
+      page: { hasNextPage: false, nextCursor: null },
+    } as never);
+    let resolveActive!: (value: unknown) => void;
+    mockApi.getDiscussions.mockImplementation(
+      () => new Promise((resolve) => { resolveActive = resolve; }) as never,
+    );
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <GroupsScreen authenticated isFocused locale="en" onRequestSignIn={jest.fn()} />,
+      );
+    });
+    expect(mockApi.getDiscussions).toHaveBeenCalledWith('group-a', 'en');
+    expect(renderedText(tree)).toContain('Loading posts...');
+
+    await act(async () => {
+      tree.update(
+        <GroupsScreen authenticated isFocused locale="en" onRequestSignIn={jest.fn()} targetGroupId="group-p" />,
+      );
+    });
+    await act(async () => {
+      resolveActive({ discussions: [] });
+    });
+
+    const text = renderedText(tree);
+    expect(text).toContain('pending approval');
+    expect(text).not.toContain('Loading posts...');
+    await act(async () => tree.unmount());
+  });
+
+  it('fetches discussions exactly once after joining the selected group', async () => {
+    mockApi.getGroups.mockResolvedValue({
+      groups: [openGroup],
+      page: { hasNextPage: false, nextCursor: null },
+    } as never);
+    mockApi.getDiscussions.mockResolvedValue({ discussions: [] } as never);
+    mockApi.joinGroup.mockResolvedValue({
+      group: { ...openGroup, viewerMembershipStatus: 'active', viewerMembershipRole: 'member' },
+    } as never);
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(
+        <GroupsScreen authenticated isFocused locale="en" onRequestSignIn={jest.fn()} />,
+      );
+    });
+    expect(mockApi.getDiscussions).not.toHaveBeenCalled();
+
+    const joinButton = tree.root.find(
+      (node) => node.props.accessibilityLabel === 'Join circle to participate' && typeof node.props.onPress === 'function',
+    );
+    await act(async () => {
+      joinButton.props.onPress();
+    });
+
+    expect(mockApi.joinGroup).toHaveBeenCalledTimes(1);
+    expect(mockApi.getDiscussions).toHaveBeenCalledTimes(1);
+    expect(mockApi.getDiscussions).toHaveBeenCalledWith('group-o', 'en');
+    await act(async () => tree.unmount());
+  });
+
+  it('reloads the profile dashboard when the signed-in identity changes without a sign-out', async () => {
+    const recommendations = {
+      recommendedForYou: [],
+      communitiesYouMayFeelAtHomeIn: [],
+      peopleLikeYouAreJoining: [],
+      gatheringsNearYou: [],
+      becauseYouJoined: [],
+      inYourLanguage: [],
+      peopleLikeYouAttended: [],
+      trendingNearYou: [],
+    };
+    mockApi.healthCheck.mockResolvedValue({ service: 'samgamam', timestamp: '2026-11-14T10:00:00Z' } as never);
+    mockApi.getRecommendations.mockResolvedValue(recommendations as never);
+    mockApi.getInterests.mockResolvedValue({
+      model: { explicitInterests: [], notInterestedCategories: [], inferredInterests: [] },
+    } as never);
+    const notificationFor = (viewer: string) => ({
+      notifications: [{
+        id: `n-${viewer}`,
+        type: 'info',
+        status: 'unread',
+        title: `Private note for ${viewer}`,
+        body: 'body',
+        targetUrl: 'samgamam://notifications',
+        createdAt: '2026-11-14T10:00:00Z',
+      }],
+      unreadCount: 1,
+    });
+    mockApi.getNotifications
+      .mockResolvedValueOnce(notificationFor('user-a') as never)
+      .mockResolvedValueOnce(notificationFor('user-b') as never);
+
+    const sessionFor = (id: string): AuthSessionResponse => ({
+      authenticated: true,
+      locale: 'en',
+      viewer: { id, email: `${id}@example.invalid`, emailVerified: true, fullName: id, roles: ['member'] },
+    });
+    const profile = (session: AuthSessionResponse) => (
+      <ProfileScreen
+        session={session}
+        connectionError={null}
+        isFocused
+        locale="en"
+        apiBaseUrl="https://samgamam.com"
+        onLogin={jest.fn().mockResolvedValue(undefined)}
+        onLogout={jest.fn().mockResolvedValue(undefined)}
+        onRefreshSession={jest.fn().mockResolvedValue(undefined)}
+        onSaveApiBaseUrl={jest.fn().mockResolvedValue('https://samgamam.com')}
+      />
+    );
+
+    let tree!: ReturnType<typeof create>;
+    await act(async () => {
+      tree = create(profile(sessionFor('user-a')));
+    });
+    expect(renderedText(tree)).toContain('Private note for user-a');
+
+    await act(async () => {
+      tree.update(profile(sessionFor('user-b')));
+    });
+
+    expect(mockApi.getNotifications).toHaveBeenCalledTimes(2);
+    const text = renderedText(tree);
+    expect(text).toContain('Private note for user-b');
+    expect(text).not.toContain('Private note for user-a');
+    await act(async () => tree.unmount());
+  });
+});
