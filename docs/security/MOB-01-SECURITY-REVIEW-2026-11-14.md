@@ -48,6 +48,11 @@ Other checks:
   - GMS `RevocationBoundService` and `FirebaseInstanceIdReceiver`, both protected by signature permissions
   - `ProfileInstallReceiver`, protected by `DUMP`
   - **`PreviewActivity`, unprotected (F2)**
+- **CI APK at `d40248c` (fix verified):** artifact `android-acceptance` from run 43603339186 ("Android deterministic acceptance", success), `app-release.apk` sha256 `9c46a174ee8c83969596f7ed478e373d8c88822f113c8934ed82d26162569de4`, targetSdk 36.
+  - `aapt2 dump xmltree`: 0 occurrences of `PreviewActivity` (the `356542f` APK has 1).
+  - `aapt2 dump permissions` compared with `356542f`: the only difference is that `USE_BIOMETRIC` and `USE_FINGERPRINT` were removed. The remaining permissions are `CAMERA` (QR ticket scanning), `INTERNET`, `ACCESS_NETWORK_STATE`, `VIBRATE`, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `POST_NOTIFICATIONS`, FCM `c2dm.RECEIVE`, install-referrer, and launcher-badge permissions.
+  - Exported components: `MainActivity`, the Auth0 `RedirectActivity`, GMS `RevocationBoundService`, `FirebaseInstanceIdReceiver` and `ProfileInstallReceiver`. All of them existed before. No new exported component was added.
+  - No `android:debuggable` attribute.
 - **Android backup:** `allowBackup=true` together with `secure_store_backup_rules` and `secure_store_data_extraction_rules`, which exclude SecureStore from backup.
 - **SecureStore contents:** the access token, API base URL, device ID, push token and user ID, all in the Keychain/Keystore. When SecureStore is unavailable the app falls back to in-memory storage. Nothing sensitive goes to AsyncStorage.
 - **iOS purpose strings:** `NSCameraUsageDescription` is specific. The microphone purpose string is disabled through the expo-camera option. `NSFaceIDUsageDescription` is still the generic expo-secure-store default on this branch and is removed by PR #6.
@@ -117,7 +122,7 @@ Notes for the PR #2 rebase:
 
 ## 6. Remaining release blockers
 
-1. **CI on the new PR #5 head:** confirm the Android release APK no longer contains `PreviewActivity`, `USE_BIOMETRIC` or `USE_FINGERPRINT` (`aapt2` on the `android-acceptance` artifact).
+1. ~~**CI on the new PR #5 head:** confirm the Android release APK no longer contains `PreviewActivity`, `USE_BIOMETRIC` or `USE_FINGERPRINT`.~~ **Closed:** verified on the `d40248c` CI APK (run 43603339186); see section 2.
 2. **No production-signed iOS or Android build** has been produced or inspected. That is correct for this review, which had no credentials, but the first EAS production build must be checked for `aps-environment`, ATS, permissions and exported components.
 3. **Owner sign-off** on accepting the 3 residual moderate/low tooling advisories, with re-review by 2026-12-15.
 4. **PR #2 `zod` high exception** expires 2026-11-15 and should be remediated, not extended.
