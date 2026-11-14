@@ -1,6 +1,6 @@
 const {spawnSync} = require("node:child_process");
 
-// Mobile dependency audit exception expired on 2026-11-15.
+// Mobile dependency audit exceptions expired on 2026-11-15.
 // Zod advisory GHSA-MRHX-C7XC-M3W5 was resolved by upgrading Expo to 58.0.25+.
 const ALLOWED_HIGH_GHSAS = new Map([]);
 
@@ -47,29 +47,34 @@ const highOrCritical = advisories.filter((item) =>
   item.severity === "high" || item.severity === "critical",
 );
 
-const now = new Date();
-
-
-const rejected = [];
-const accepted = [];
-
-for (const advisory of highOrCritical) {
-  const exception = advisory.ghsa ? ALLOWED_HIGH_GHSAS.get(advisory.ghsa) : null;
-  if (exception && exception.packageName === advisory.packageName) {
-    accepted.push(advisory);
-    continue;
-  }
-  rejected.push(advisory);
+// Fail closed if npm counts high/critical findings that the advisory walk above
+// could not attribute (e.g. an unexpected report shape), instead of passing.
+const reportedHighOrCritical =
+  Number(audit.metadata.vulnerabilities.high ?? 0) + Number(audit.metadata.vulnerabilities.critical ?? 0);
+if (reportedHighOrCritical > 0 && highOrCritical.length === 0) {
+  console.error(
+    `npm audit reports ${reportedHighOrCritical} high/critical package(s) but no attributable advisory; failing closed.`,
+  );
+  process.exit(1);
 }
 
-if (rejected.length > 0) {
-  console.error("High/critical npm advisories outside the approved mobile exception set:");
-  for (const advisory of rejected) {
-    console.error(
-      `- ${advisory.packageName}: ${advisory.ghsa || advisory.title || advisory.url || "unknown advisory"} (${advisory.severity})`,
-    );
+if (highOrCritical.length > 0) {
+  console.error('High/critical npm advisories are not permitted:');
+  for (const advisory of highOrCritical) {
+    console.error(`- ${advisory.packageName}: ${advisory.ghsa || advisory.title} (${advisory.severity})`);
   }
   process.exit(1);
+}
+
+// Print every advisory ID so moderate/low drift is visible in CI evidence; the
+// counts alone hid four new node-forge advisories between reviews.
+const inventory = new Map();
+for (const advisory of advisories) {
+  const key = `${advisory.packageName} ${advisory.ghsa || advisory.title || advisory.url || "unknown"}`;
+  inventory.set(key, advisory.severity);
+}
+for (const [key, severity] of [...inventory].sort(([a], [b]) => a.localeCompare(b))) {
+  console.log(`- ${severity}: ${key}`);
 }
 
 const metadata = audit.metadata?.vulnerabilities ?? {};

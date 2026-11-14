@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   RefreshControl,
@@ -34,16 +34,6 @@ export function GroupsScreen(props: {
   const { targetGroupId, onClearTargetGroupId } = props;
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
-  const [draftMessage, setDraftMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [discussionLoading, setDiscussionLoading] = useState(false);
-  const [discussionForbidden, setDiscussionForbidden] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [mutatingGroupId, setMutatingGroupId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!targetGroupId) return;
@@ -81,6 +71,16 @@ export function GroupsScreen(props: {
       cancelled = true;
     };
   }, [targetGroupId, props.locale, onClearTargetGroupId, groups]);
+  const [discussions, setDiscussions] = useState<DiscussionPost[]>([]);
+  const [draftMessage, setDraftMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [discussionLoading, setDiscussionLoading] = useState(false);
+  const [discussionForbidden, setDiscussionForbidden] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [mutatingGroupId, setMutatingGroupId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -101,50 +101,72 @@ export function GroupsScreen(props: {
     (membershipRole === "organizer" || membershipRole === "co-organizer");
   const canOpenSelectedDiscussion = isActiveMember;
 
-  async function loadGroups(isRefresh = false) {
-    if (isRefresh) {
-      setRefreshing(true);
-      setNextCursor(null);
-    } else {
-      setLoading(true);
-    }
+  const groupsGen = useRef(0);
+  const discussionsGen = useRef(0);
+  const selectedGroupIdRef = useRef(selectedGroupId);
 
-    setError(null);
+  useEffect(() => {
+    selectedGroupIdRef.current = selectedGroupId;
+  }, [selectedGroupId]);
 
-    try {
-      const response = await apiClient.getGroups({
-        locale: props.locale,
-        limit: 10,
-      });
+  const loadGroups = useCallback(
+    async (isRefresh = false, isCancelled?: () => boolean) => {
+      const thisGen = ++groupsGen.current;
+      if (isRefresh) {
+        setRefreshing(true);
+        setNextCursor(null);
+      } else {
+        setLoading(true);
+      }
 
-      setGroups((prev) => {
-        const selected = prev.find((g) => g.id === selectedGroupId);
-        if (selected && !response.groups.some((g) => g.id === selected.id)) {
-          return [selected, ...response.groups];
+      setError(null);
+
+      try {
+        const response = await apiClient.getGroups({
+          locale: props.locale,
+          limit: 10,
+        });
+
+        if (thisGen !== groupsGen.current || isCancelled?.()) {
+          return;
         }
-        return response.groups;
-      });
-      setNextCursor(response.page?.nextCursor ?? null);
-      setHasNextPage(Boolean(response.page?.hasNextPage && response.page?.nextCursor));
 
-      setSelectedGroupId((currentValue) => {
-        if (currentValue) {
-          return currentValue;
+        setGroups((prev) => {
+          const currentSelectedId = selectedGroupIdRef.current;
+          const selected = prev.find((g) => g.id === currentSelectedId);
+          if (selected && !response.groups.some((g) => g.id === selected.id)) {
+            return [selected, ...response.groups];
+          }
+          return response.groups;
+        });
+        setNextCursor(response.page?.nextCursor ?? null);
+        setHasNextPage(Boolean(response.page?.hasNextPage && response.page?.nextCursor));
+
+        setSelectedGroupId((currentValue) => {
+          if (currentValue) {
+            return currentValue;
+          }
+
+          return (
+            response.groups.find((group) => group.viewerMembershipStatus === "active")?.id ??
+            response.groups[0]?.id ??
+            null
+          );
+        });
+      } catch (loadError) {
+        if (thisGen !== groupsGen.current || isCancelled?.()) {
+          return;
         }
-
-        return (
-          response.groups.find((group) => group.viewerMembershipStatus === "active")?.id ??
-          response.groups[0]?.id ??
-          null
-        );
-      });
-    } catch (loadError) {
-      setError(getErrorMessage(loadError));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
+        setError(getErrorMessage(loadError));
+      } finally {
+        if (thisGen === groupsGen.current && !isCancelled?.()) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [props.locale],
+  );
 
   async function loadMoreGroups() {
     if (!hasNextPage || !nextCursor || loadingMore || loading) {
@@ -175,69 +197,84 @@ export function GroupsScreen(props: {
     }
   }
 
-  async function loadDiscussions(group: GroupSummary) {
-    setDiscussionForbidden(false);
+  const loadDiscussions = useCallback(
+    async (group: GroupSummary, isCancelled?: () => boolean) => {
+      const thisGen = ++discussionsGen.current;
+      setDiscussionForbidden(false);
 
-    if (!props.authenticated) {
-      setDiscussions([]);
-      setNotice("Sign in to read and post in community discussions.");
-      return;
-    }
+      const lockedNotice = !props.authenticated
+        ? "Sign in to read and post in community discussions."
+        : group.viewerMembershipStatus === "pending"
+          ? "Your membership request is pending approval by group organizers."
+          : group.viewerMembershipStatus !== "active"
+            ? "This circle is visible to the community, but discussions are reserved for active members."
+            : null;
 
-    if (group.viewerMembershipStatus === "pending") {
-      setDiscussions([]);
-      setNotice("Your membership request is pending approval by group organizers.");
-      return;
-    }
-
-    if (group.viewerMembershipStatus !== "active") {
-      setDiscussions([]);
-      setNotice("This circle is visible to the community, but discussions are reserved for active members.");
-      return;
-    }
-
-    setDiscussionLoading(true);
-    setError(null);
-
-    try {
-      const response = await apiClient.getDiscussions(group.id, props.locale);
-      setDiscussions(response.discussions);
-      setNotice(
-        response.discussions.length === 0
-          ? "No one has posted yet. Start the conversation."
-          : null,
-      );
-    } catch (loadError: any) {
-      if (loadError?.status === 403 || loadError?.code === "forbidden") {
-        setDiscussionForbidden(true);
+      if (lockedNotice) {
+        // Bumping the generation above makes any in-flight request skip its own
+        // cleanup, so this branch must clear the spinner itself.
+        setDiscussionLoading(false);
         setDiscussions([]);
-      } else {
-        setError(getErrorMessage(loadError));
+        setNotice(lockedNotice);
+        return;
       }
-    } finally {
-      setDiscussionLoading(false);
-    }
-  }
+
+      setDiscussionLoading(true);
+      setError(null);
+
+      try {
+        const response = await apiClient.getDiscussions(group.id, props.locale);
+        if (thisGen !== discussionsGen.current || isCancelled?.()) {
+          return;
+        }
+        setDiscussions(response.discussions);
+        setNotice(
+          response.discussions.length === 0
+            ? "No one has posted yet. Start the conversation."
+            : null,
+        );
+      } catch (loadError: any) {
+        if (thisGen !== discussionsGen.current || isCancelled?.()) {
+          return;
+        }
+        if (loadError?.status === 403 || loadError?.code === "forbidden") {
+          setDiscussionForbidden(true);
+          setDiscussions([]);
+        } else {
+          setError(getErrorMessage(loadError));
+        }
+      } finally {
+        if (thisGen === discussionsGen.current && !isCancelled?.()) {
+          setDiscussionLoading(false);
+        }
+      }
+    },
+    [props.authenticated, props.locale],
+  );
 
   useEffect(() => {
     if (!props.isFocused) {
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
-    void loadGroups();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only on auth/focus/locale changes, not on selection or pagination
-  }, [props.authenticated, props.isFocused, props.locale]);
+    let cancelled = false;
+    void loadGroups(false, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [props.authenticated, props.isFocused, loadGroups]);
 
   useEffect(() => {
     if (!props.isFocused || !selectedGroup) {
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
-    void loadDiscussions(selectedGroup);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedGroup is derived from selectedGroupId + groups, both listed
-  }, [props.authenticated, props.isFocused, props.locale, selectedGroupId, groups]);
+    let cancelled = false;
+    void loadDiscussions(selectedGroup, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [props.isFocused, selectedGroup, loadDiscussions]);
 
   async function handleJoin(group: GroupSummary) {
     if (!props.authenticated) {
@@ -262,10 +299,9 @@ export function GroupsScreen(props: {
       );
 
       if (updated.viewerMembershipStatus === "active") {
+        // The discussions effect reloads when the selected group's membership
+        // changes; calling loadDiscussions here as well fired a duplicate request.
         setNotice("You joined " + updated.name + "! Member discussions are now unlocked.");
-        if (selectedGroupId === updated.id) {
-          void loadDiscussions(updated);
-        }
       } else if (updated.viewerMembershipStatus === "pending") {
         setNotice("Your request to join " + updated.name + " is pending organizer approval.");
         if (selectedGroupId === updated.id) {
