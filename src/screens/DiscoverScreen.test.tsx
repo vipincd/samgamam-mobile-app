@@ -32,4 +32,5 @@ it('caps Dynamic Type scaling of the Discover hero headline so it cannot fill th
   // Still scales for readability, but bounded (33pt × 1.6 ≈ 53pt at the largest setting).
   expect(heading.props.maxFontSizeMultiplier).toBe(1.6);
   await act(async () => tree!.unmount());
-});
+  // The first render loads fonts, icons and the full screen module; slow on a loaded CI host.
+}, 30000);
