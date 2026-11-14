@@ -271,8 +271,11 @@ function barrierChild(dir) {
       const ok = st.sameLockPath && st.owner === runId && st.iosRunnerExit !== 0 && st.iosRunnerMsg === '[LOCK BUSY]' && st.iosMaestroRefused &&
         st.iosForceUnlock === '[LOCK ACTIVE]' && st.iosReset === 409 && st.eventsStill200 && st.androidMockUntouched && st.androidExit === 0 && st.lockReleased && st.portFree;
       record('X1 Android owns shared 4318; iOS worktree cannot take, reset, stop or unlock it', ok, JSON.stringify(st));
-      record('X3 iOS no-entity-request history probe vs run-owned mock', st.historyNoHeader === 200,
-        `GET /__mock/history without x-mock-run-id -> ${st.historyNoHeader}; with owner header -> ${st.historyOwnerHeader}`);
+      // The owned mock must refuse header-less control calls, so the iOS probe must present the run id.
+      const probe = fs.readFileSync(path.join(ROOT, '.maestro/scripts/assert-no-entity-requests.js'), 'utf8');
+      const probeSendsRunId = /x-mock-run-id/.test(probe) && /MOCK_RUN_ID/.test(probe);
+      record('X3 iOS no-entity-request history probe vs run-owned mock', st.historyNoHeader === 409 && st.historyOwnerHeader === 200 && probeSendsRunId,
+        `GET /__mock/history without x-mock-run-id -> ${st.historyNoHeader}; with owner header -> ${st.historyOwnerHeader}; assert-no-entity-requests.js sends run id: ${probeSendsRunId}`);
     });
     await test('X2 iOS owns shared 4318 from other worktree; Android cannot take or reset it', async () => {
       const dir = fs.mkdtempSync(path.join(TMP, 'x2-'));
