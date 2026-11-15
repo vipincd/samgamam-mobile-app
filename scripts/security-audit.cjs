@@ -1,15 +1,8 @@
 const {spawnSync} = require("node:child_process");
 
-const EXCEPTION_EXPIRY = new Date("2026-11-15T00:00:00Z");
-const ALLOWED_HIGH_GHSAS = new Map([
-  [
-    "GHSA-MRHX-C7XC-M3W5",
-    {
-      packageName: "zod",
-      reason: "memory exhaustion on oversized input; zod 3 is pinned privately by Expo SDK 58's @expo/cli (build tooling only, validates trusted project config); the fix requires zod 4, which the CLI does not support",
-    },
-  ],
-]);
+// Mobile dependency audit exception expired on 2026-11-15.
+// Zod advisory GHSA-MRHX-C7XC-M3W5 was resolved by upgrading Expo to 58.0.25+.
+const ALLOWED_HIGH_GHSAS = new Map([]);
 
 function extractGhsa(value) {
   const match = String(value ?? "").match(/GHSA-[0-9A-Za-z-]+/i);
@@ -55,12 +48,7 @@ const highOrCritical = advisories.filter((item) =>
 );
 
 const now = new Date();
-if (highOrCritical.length > 0 && now >= EXCEPTION_EXPIRY) {
-  console.error(
-    `Mobile dependency audit exceptions expired on ${EXCEPTION_EXPIRY.toISOString()}. Review upstream fixes before extending.`,
-  );
-  process.exit(1);
-}
+
 
 const rejected = [];
 const accepted = [];
@@ -84,16 +72,7 @@ if (rejected.length > 0) {
   process.exit(1);
 }
 
-const uniqueAccepted = new Map(
-  accepted.map((item) => [item.ghsa, item]),
-);
-for (const [ghsa, advisory] of uniqueAccepted) {
-  console.warn(
-    `Accepted temporary mobile build-tool exception: ${ghsa} (${advisory.packageName}) — ${ALLOWED_HIGH_GHSAS.get(ghsa)?.reason}. Expires ${EXCEPTION_EXPIRY.toISOString()}.`,
-  );
-}
-
 const metadata = audit.metadata?.vulnerabilities ?? {};
 console.log(
-  `npm audit gate passed. critical=${metadata.critical ?? 0}, high=${metadata.high ?? 0}, moderate=${metadata.moderate ?? 0}, low=${metadata.low ?? 0}. High/critical direct advisories are either absent or explicitly time-bounded above.`,
+  `npm audit gate passed. critical=${metadata.critical ?? 0}, high=${metadata.high ?? 0}, moderate=${metadata.moderate ?? 0}, low=${metadata.low ?? 0}.`,
 );
