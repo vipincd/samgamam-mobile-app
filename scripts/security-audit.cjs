@@ -42,6 +42,12 @@ try {
   process.exit(1);
 }
 
+if (result.error || result.signal || ![0, 1].includes(result.status) || audit.error ||
+    !audit.metadata?.vulnerabilities || !audit.vulnerabilities) {
+  console.error("npm audit failed to produce a complete vulnerability report.");
+  process.exit(1);
+}
+
 const advisories = collectAdvisories(audit);
 const highOrCritical = advisories.filter((item) =>
   item.severity === "high" || item.severity === "critical",
@@ -50,7 +56,7 @@ const highOrCritical = advisories.filter((item) =>
 // Fail closed if npm counts high/critical findings that the advisory walk above
 // could not attribute (e.g. an unexpected report shape), instead of passing.
 const reportedHighOrCritical =
-  Number(audit.metadata.vulnerabilities.high ?? 0) + Number(audit.metadata.vulnerabilities.critical ?? 0);
+  Number(audit.metadata?.vulnerabilities?.high ?? 0) + Number(audit.metadata?.vulnerabilities?.critical ?? 0);
 if (reportedHighOrCritical > 0 && highOrCritical.length === 0) {
   console.error(
     `npm audit reports ${reportedHighOrCritical} high/critical package(s) but no attributable advisory; failing closed.`,
