@@ -115,6 +115,11 @@ export function validateAppEnvironment(
   const audience = environment.EXPO_PUBLIC_AUTH0_AUDIENCE?.trim();
   const apiUrl = environment.EXPO_PUBLIC_API_URL?.trim();
 
+  if (environment.EXPO_PUBLIC_LOCAL_ACCEPTANCE === '1' &&
+      (isProd || apiUrl !== 'http://127.0.0.1:4318' || domain || clientId || audience)) {
+    throw new Error('Local acceptance requires loopback API, no Auth0 configuration, and a non-production environment.');
+  }
+
   if (isProd) {
     if (!domain || !clientId || !audience) {
       throw new Error(
@@ -161,6 +166,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const validated = validateAppEnvironment(process.env);
   const auth0 = validated.auth0;
   const base = (appJson as { expo: ExpoConfig }).expo;
+  const ats = resolveAppTransportSecurity(process.env);
 
   return {
     ...config,
@@ -168,10 +174,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...base.android,
       package: ANDROID_PACKAGE,
+      blockedPermissions: Array.from(
+        new Set([
+          ...(base.android?.blockedPermissions ?? []),
+          ...BLOCKED_ANDROID_PERMISSIONS,
+        ]),
+      ),
     },
     ios: {
       ...base.ios,
       bundleIdentifier: IOS_BUNDLE_IDENTIFIER,
+      infoPlist: {
+        ...(base.ios?.infoPlist ?? {}),
+        NSAppTransportSecurity: ats,
+      },
     },
     plugins: [
       ...(base.plugins ?? []),
