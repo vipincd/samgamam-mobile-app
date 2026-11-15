@@ -37,9 +37,10 @@ This workspace contains the **fully integrated Expo SDK 58 candidate** with:
 
 2. **Android Emulator Acceptance**
    ```bash
-   npm run test:android:acceptance -- emulator-<name> ios-all
+   npm run test:android:acceptance -- emulator-<name> all
    ```
-   - Expected: Same flows, synchronized via mock lock
+   - Expected: All shared flows (smoke + regression) pass
+   - Note: Do NOT use `ios-all` on Android; iOS-only flows use custom-scheme links
    - Evidence: `artifacts/maestro/[timestamp]/results.xml`
 
 3. **Native Builds**
