@@ -1,0 +1,22 @@
+appId: com.samgamam.mobile
+# Agent 06: Android variant of .maestro/ios/02_deep_link_rejected.yaml. Host-less samgamam:///...
+# links are refused by Android intent resolution (no activity), so only app-level rejections run here;
+# the no-entity-request history probe (run-owned) must still pass.
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- openLink: samgamam://event/..
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- openLink: samgamam://event/%2E%2E%2Fme
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- openLink: samgamam://event/qa-event/extra
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- runScript:
+    file: ../scripts/assert-no-entity-requests.js
+- takeScreenshot: agent06-android-deep-link-rejected

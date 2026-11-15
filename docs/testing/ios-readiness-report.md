@@ -22,6 +22,105 @@ Store Connect action was used. Every simulator result below is **simulated again
 | Push | `expo-notifications`; `aps-environment = development` entitlement from the plugin; Expo push token sent to `POST /api/v1/devices/register` |
 | Signing | None configured; simulator builds use `CODE_SIGNING_ALLOWED=NO` |
 
+<<<<<<< HEAD
+=======
+## Round 3 — runtime reliability and shared-lock acceptance (Agent 7, 14 Nov 2026)
+
+Base: PR #6 HEAD `f7b8b0df07e9a8213c2e904fd654a54b2a9dc7b3` (verified against GitHub). PR #7 HEAD read: `0f52c8e4801f075cea21975194c92c9a068ce16f`
+(not modified). All results are **simulated against the local mock**. No Auth0 tenant, backend, push service, payment configuration or
+physical iPhone was used.
+
+### Status of earlier findings at `f7b8b0d`
+
+| Finding | Status at `f7b8b0d` | Round 3 |
+|---|---|---|
+| Backend session-refresh failure (D1) | Fixed | Two more lifecycle defects found and fixed (R3-1, R3-2) |
+| Unsafe deep-link parsing / untrusted links (D2, D5) | Fixed | Re-probed with 33 more adversarial inputs (null byte, `%00`, tab, `samgamam.com.`, `:443`, backslash/userinfo, `intent://`, `file:`, `data:`, full-width chars, nested locales). All rejected; only surrounding whitespace is trimmed. Push cold-start replay fixed (R3-3). |
+| Unused Face ID purpose string (D3) | Fixed | Built app has no `NSFaceIDUsageDescription`. Camera is the only purpose string. |
+| Dynamic Type overflow (D4 tab bar; Discover headline) | Tab bar fixed; headline open | Headline capped at 1.6× (R3-4). Keyboard covering search results fixed (R3-5). |
+| Shared mock conflict with Android | Blocked on PR #7 | **Integrated** (R3-6). Verified against a live Android run. |
+| Real Auth0 verification | Blocked | Still blocked (no tenant authorized) |
+| Physical-device acceptance | Not done | Still not done. Simulator only. |
+| Account deletion / privacy readiness | Open | Still open: no deletion entry point in `src/`, and `NSPrivacyCollectedDataTypes` is empty in the built app |
+
+### Defects fixed (each with a regression test that fails before the fix)
+
+| # | Defect | Fix | Tests |
+|---|---|---|---|
+| R3-1 | **Offline launch signed the user out.** When restore hit a network error (or a 5xx), `restoreBackendSession` set `error`, but then `initialize()` cleared the stored backend token and showed `signedOut`. "Retry backend" therefore could not recover, even with valid Auth0 credentials. | `src/auth/session.ts`: restore returns `restored`/`transient`/`rejected`. On a transient failure the token and Auth0 credentials are kept and the screen shows `error` with a sanitized message. A 401 still signs the user out. | `session.test.ts` #10 (offline, then online retry restores with the same token and no exchange), #11 (exchange network failure), #12 (401 still signs out) |
+| R3-2a | **Logout racing a refresh left a live backend session.** If an Auth0 refresh/exchange started before `signOut()` and finished after it, the backend issued a new token that was never revoked. If it finished after sign-out completed, it could also put the app back into `signedIn`. | Sign-in and sign-out bump a session generation. `handleTokenExpired` returns `false` while signing out. A token issued after the generation changes is revoked with `revokeSessionToken()` and never installed. | #14 (revokes both the old and the late token; ends `signedOut` with no token), #15 (a 401 after logout does not start a refresh) |
+| R3-2b | **A late 401 started a second refresh and could clear a newer token.** A request sent with token T1 whose 401 arrived after another request had already refreshed to T2 called Auth0 `getCredentials(true)` again. Any 401 cleared the stored token, even T2. | `src/api/client.ts`: remember which stored token was sent. If the token has already been replaced, retry once with the current token. Only clear the token the request was rejected with. A rejected `/v1/auth/session` exchange still clears, as before. | #13 (retries with T2, no Auth0 call), #16 (rejected revoke of a stale token keeps the current one). Existing #5–#9 unchanged and passing. |
+| R3-3 | **Cold-start notification response was never consumed.** `getLastNotificationResponseAsync()` keeps returning the launch response, so a remount or JS reload navigated to it again. | `src/services/notifications.ts`: call `clearLastNotificationResponse()` after reading it. Best effort. | `notifications.test.ts` (consumes once) plus 6 untrusted cold-start payloads rejected |
+| R3-4 | Discover hero headline scaled without limit (fills a screen per word at AX5) | `maxFontSizeMultiplier={1.6}` on that headline only; body text still scales | `DiscoverScreen.test.tsx`. AX5 + dark-mode simulator screenshot: headline uses 3 lines and search stays on the first screen. |
+| R3-5 | **Keyboard covered search results and the empty-state "Explore all" button** after tapping Search. Found by Maestro `04` on the PR #6 + PR #7 head: PR #7 removed the flow's `hideKeyboard` step, which had been hiding this bug. | `submitSearch()` calls `Keyboard.dismiss()` for the button and the return key | `DiscoverScreen.test.tsx`. Maestro `04` fails on the first run (`ios-round3-maestro-first-run-04-failed.xml`) and passes after the fix. |
+| R3-6 | iOS acceptance did not use the shared lock | See "Shared Android/iOS test isolation" | `tests/security/ios-acceptance-isolation.test.cjs` (7 tests) |
+
+### Shared Android/iOS test isolation (PR #7 contract)
+
+- `scripts/testing/ios-acceptance.sh` (`npm run test:maestro:ios -- [UDID] [ios-all|all|smoke|regression|ios]`) runs
+  `node scripts/testing/mock-manager.cjs exec --platform ios --port 4318 --run-id ios-<epoch>-<pid> -- node scripts/testing/run-maestro.mjs …`.
+  It uses PR #7's manager as-is. Nothing is duplicated, there is no `--lock-file` override (default
+  `$(git rev-parse --git-common-dir)/samgamam-acceptance-4318.lock`), and it never kills processes, removes locks, or passes `--force`/`--allow-stale`.
+  If `mock-manager.cjs` is absent (PR #6 before PR #7 merges), it exits 2 without starting a mock. It also refuses `emulator-*` serials.
+- `scripts/testing/run-maestro.mjs`: when `MOCK_RUN_ID` is exported (set by `mock-manager exec`), the mock on 4318 must report that `runId`
+  (`scripts/testing/mock-ownership.mjs`). Without it (Android `start`/`stop` mode in `android-ci.sh`), the check is the same as before.
+  New suites: `ios` and `ios-all`. Existing `all|smoke|regression` behaviour is unchanged.
+- **Live contention evidence (14 Nov, 14:53 CET):** Agent 6's Android run held the lock (`android-1794664352880-13192`, mock PID 13204).
+  The iOS runner exited 1 with `[LOCK BUSY]` and `Foreign lock preserved`. The Android mock kept answering `/__mock/health` with its own runId, and the lock
+  was unchanged (`evidence/phase-10/ios-round3-lock-busy.log`). The iOS suite then waited until the lock and port were free and ran under its own lock.
+  Its mock was stopped and the lock released afterwards.
+
+### Simulator build and Maestro (integration head, local only)
+
+Isolated detached worktree: PR #6 + PR #7 merge `877c1ae` (clean, no conflicts) plus this round's two follow-up commits. No branch was modified.
+`expo prebuild` → `pod install` (needs `LANG=en_US.UTF-8` with Ruby 4) → `xcodebuild … Release -sdk iphonesimulator ARCHS=arm64 CODE_SIGNING_ALLOWED=NO IPHONEOS_DEPLOYMENT_TARGET=15.1`
+→ `** BUILD SUCCEEDED **` on Xcode 27.2 (27B52), iPhone 17 Pro / iOS 26.5. Built with `EXPO_PUBLIC_LOCAL_ACCEPTANCE=1`; never distribute it.
+Executable SHA-256 `671f990a57f08e6d1fea4e7e8f544794e67c736dcf7e53fa9e899150a9ce12b0`, `main.jsbundle` (Hermes bytecode v96)
+`87f25049e5dfad7a67cd39e9d9fca397f1c6542cb6bef630651c2904146be28d`. Info.plist: `MinimumOSVersion 15.1`, `UIUserInterfaceStyle Light`,
+schemes `samgamam` and `exp+mobile-app`, ATS `NSAllowsArbitraryLoads=false` with `NSAllowsLocalNetworking=true`, no `UIBackgroundModes`, Camera is the only purpose string.
+
+| Run | Result |
+|---|---|
+| `ios-all` 14:53 CET (before R3-5) | 13/14. `04_search_empty_recovery` failed: keyboard covered "Explore all" |
+| `ios-all` 15:07 CET (after R3-5) | **14/14 passed** in 7 m 35 s (12 shared + `ios/01_deep_link_event` + `ios/02_deep_link_rejected`); `evidence/phase-10/ios-round3-maestro.xml` |
+
+`ios/02_deep_link_rejected` now opens `samgamam://event/..`, `…/%2E%2E%2Fme`, `…/qa-event/extra` and `samgamam:///event/qa-event`. It then asserts
+from `GET /__mock/history` that the only request was the Discover `GET /api/v1/events` (`.maestro/scripts/assert-no-entity-requests.js`).
+Usability covered by these flows: launch, listing, details, navigation and 12-switch tab cycling, search empty and recovery, groups, offline/5xx/timeout/malformed
+recovery, relaunch, background/resume. VoiceOver was not verified (simulator tooling cannot assert announcements). Other iPhone sizes and landscape were not run.
+
+### Checks
+
+| Check | PR #6 branch | Integration (PR #6 + PR #7) |
+|---|---|---|
+| `npm ci` | exit 0 | exit 0 |
+| `npm run typecheck` | 0 errors | 0 errors |
+| `EXPO_NO_DOTENV=1 npm run lint` | 0 errors, 3 pre-existing warnings | — |
+| `npm test -- --ci` | 16 suites, **229 passed** | 242 tests. 241 passed on the first run; the new render test timed out at the 5 s default under load average ~150. Fixed with a 30 s timeout and passes. |
+| `npm run test:contracts` | **25 passed** | 69 passed, 0 failed, 3 skipped (PR #7 Android manifest/APK checks need an Android build) |
+| `npm run security:audit` | gate passed: critical 0, high 0, moderate 27, low 7 (lockfile unchanged) | — |
+| iOS simulator Release build | — | BUILD SUCCEEDED |
+| Maestro iOS `ios-all` under shared lock | — | 14/14 |
+
+### Shared-file impact and Android compatibility
+
+| File | Change | Android impact |
+|---|---|---|
+| `src/auth/session.ts`, `src/api/client.ts` | R3-1, R3-2 | Same code path on Android. Behaviour changes: offline launch keeps the session (error state instead of signed out), and logout always wins over a racing refresh. Auth protocol, endpoints and headers are unchanged. |
+| `src/services/notifications.ts`, `jest.setup.js` | R3-3 | Android cold-start taps are consumed the same way (`clearLastNotificationResponse` exists on both platforms in expo-notifications 0.32) |
+| `src/screens/DiscoverScreen.tsx` | R3-4, R3-5 | Headline capped at 1.6× on Android font scale too. The keyboard is dismissed on search submit, which is also needed for PR #7's Android flow `04` without `hideKeyboard`. |
+| `scripts/testing/run-maestro.mjs`, `package.json` | R3-6 | Android invocations are unchanged. The `runId` check only applies when `MOCK_RUN_ID` is exported. |
+| `.maestro/ios/*`, `.maestro/scripts/assert-no-entity-requests.js`, `scripts/testing/ios-acceptance.sh`, `scripts/testing/mock-ownership.mjs` | iOS-only | Not in Android's `smoke`/`regression` folders |
+
+Android was **not** run in this round (owned by Agent 6). Required on the combined head: Android Maestro `smoke`/`regression`, including `04`, and a logout and offline-launch check on an emulator.
+
+### Remaining real-device and release requirements
+
+Real Auth0 login, cancel, refresh and logout on a tenant; push delivery and tap on a physical iPhone with an APNs development key; VoiceOver and Reduced Motion;
+camera permission denial for QR check-in; universal links (Associated Domains not configured); in-app account deletion; privacy manifest
+collected-data declarations and App Store privacy label; distribution signing and production `aps-environment`; performance on hardware.
+
+>>>>>>> agents/mobile06-int-pr6-pr7-20261114
 ## Remediation round 2 (review 5822278946)
 
 Base `de7e042182e0d6666bcabc811162c1d5881135f0`; `main` unchanged at `f5e11b4`.
@@ -152,13 +251,21 @@ Final build SHA-256: executable `6f42661819c4e0beaaf3582c1e35ab55ec43bb9671226ae
 | IOS-06 Invalid credentials | BLOCKED | Credentials are entered on Auth0's hosted page, not in the app |
 | IOS-07 Session expiry | BLOCKED (UI); D1 fixed | Session tests #5–#7 |
 | IOS-08 Event listing | PASS | `GET /api/v1/events`, "1 gathering" |
+<<<<<<< HEAD
 | IOS-09 Event search | NOT RUN | Needs text input; Maestro unavailable (see below) |
+=======
+| IOS-09 Event search | PASS (no-match path) | Maestro `04_search_empty_recovery`: "nomatch" shows the empty state, "Explore all" restores the list. A matching query is not asserted. |
+>>>>>>> agents/mobile06-int-pr6-pr7-20261114
 | IOS-10 Event details | PASS | Via deep link; date shown as "Sat, Jun 15 at 12:00 PM (Europe/Berlin)" for `10:00Z` |
 | IOS-11–14 RSVP, double-tap, cancel, waitlist | BLOCKED | Need an authenticated session; covered by API lifecycle Jest tests only |
 | IOS-15 Offline | PASS | Mock `offline` (socket destroyed): "Let's reconnect" + Try again; retry recovered after switching to success |
 | IOS-16 Backend unavailable | PASS | Mock `error` (503): same recovery UI, no crash |
 | IOS-17 Background/foreground | PASS | HOME then relaunch: same PID, Groups tab state kept |
+<<<<<<< HEAD
 | IOS-18 Deep link | PASS | Valid link opens details; malicious links ignored (D2) |
+=======
+| IOS-18 Deep link | PASS | `simctl openurl` and Maestro iOS flows: valid link opens details; malicious links ignored (D2) |
+>>>>>>> agents/mobile06-int-pr6-pr7-20261114
 | IOS-19 Logout | BLOCKED (UI) | Session test #4 |
 | IOS-20 Dynamic Type | PARTIAL | Tab bar FAIL before, PASS after D4; Discover headline still oversized (note below) |
 | IOS-21 VoiceOver | NOT RUN | Static review only: 28 accessibility labels, tabs use `accessibilityRole="tab"` and `selected` state |
@@ -181,12 +288,36 @@ empty state, empty groups, signed-out profile, error/malformed/offline/timeout r
 background recovery). All use the local mock (simulated). New iOS-only flows `.maestro/ios/01_deep_link_event.yaml`
 and `02_deep_link_rejected.yaml` sit outside the runner's `smoke`/`regression` folders so Android CI does not run them.
 
+<<<<<<< HEAD
 **Result: BLOCKED by the host.** Two runs on the current HEAD (`npm run test:maestro -- <UDID> all`,
 then `smoke` with `MAESTRO_DRIVER_STARTUP_TIMEOUT=600000`) were both stopped by the runner's 15-minute
 timeout (exit 143) with zero flows executed. The first never got an answer from the XCUITest driver; the
 second stalled after planning. The machine's load average was 240–350 throughout (other IDEs, VMs and
 Maestro JVMs). The Phase 9 iOS result (12/12) is **not** re-validated on this HEAD. The new iOS flows
 have not been executed by Maestro; the same scenarios were checked directly with `simctl` (IOS-18).
+=======
+**Result: shared suites 12/12 passed, iOS-only flows 2/2 passed** (Maestro 2.12.1, Release build of
+this branch, iPhone 17 Pro / iOS 26.5, simulated against the local mock). Every flow ran against a mock
+started from this worktree; ownership of port 4318 was checked before each run and the mock's survival after.
+
+| Run (local time, Nov 9) | Flows | Result |
+|---|---|---|
+| `npm run test:maestro -- <UDID> all`, 07:01:05–07:02:33 | `01`–`06` | 6 passed |
+| `maestro test` on `07`–`12`, 07:13:23–07:14:55 | `07`–`12` | 6 passed, mock survived |
+| `maestro test` on `.maestro/ios/*`, 07:15:19–07:15:56 | iOS `01`, `02` | 2 passed; mock history after `02` contains only the launch `GET /api/v1/events` and no request for the rejected ID |
+
+**Discarded runs.** Two earlier runs were stopped by the runner's 15-minute timeout (exit 143) with zero
+flows executed while the host load average was 240–350. A run at 06:55 reported 10/12, but its mock had
+failed to start (`EADDRINUSE`): Developer C's Android acceptance run was using its own mock on the same
+port 4318 at the same time, so both suites reset each other's scenarios. In the 07:01 run, flows `07`–`12`
+failed at 07:02:35 with "Failed to connect to 127.0.0.1:4318": Developer C's local
+`scripts/testing/android-ci.sh` begins with `lsof -ti :4318 | xargs kill -9` and killed this worktree's mock.
+That line exists only in Developer C's worktree, not on `main`.
+
+**Coordination needed:** the iOS and Android acceptance runs cannot run at the same time on one machine,
+because both builds are fail-closed to `http://127.0.0.1:4318`. Serialize them, or give each platform's
+acceptance build its own mock port, and avoid `kill -9` on the port in shared scripts.
+>>>>>>> agents/mobile06-int-pr6-pr7-20261114
 
 ## Performance (Release simulator, loaded host — indicative only)
 
@@ -203,7 +334,12 @@ have not been executed by Maestro; the same scenarios were checked directly with
 | `npm test` | 15 suites, 178 passed (176 + 2 new) |
 | `npm run test:contracts` | 18 passed |
 | iOS Release simulator build | PASS (arm64) |
+<<<<<<< HEAD
 | Maestro iOS | BLOCKED (host) |
+=======
+| Maestro iOS, shared smoke + regression | 12/12 passed (simulated) |
+| Maestro iOS-only deep-link flows | 2/2 passed (simulated) |
+>>>>>>> agents/mobile06-int-pr6-pr7-20261114
 
 Round 2 (macOS host, Node 24, Jest on Node — not the device runtime):
 

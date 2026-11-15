@@ -1,0 +1,10 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- assertVisible: "Search events"
+- assertVisible: "Profile"
+- takeScreenshot: startup

@@ -24,15 +24,14 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
-      ],
-      "predictiveBackGestureEnabled": false
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -59,7 +58,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Samgamam to access your camera to scan ticket QR codes."
+          "cameraPermission": "Allow Samgamam to access your camera to scan ticket QR codes.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ]
     ],

@@ -1,0 +1,14 @@
+appId: com.samgamam.mobile
+# Agent 06 supplemental: Discover at the system font scale set by the harness (adb font_scale 2.0).
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- assertVisible: "Search events"
+- assertVisible: "Discover"
+- assertVisible: "Profile"
+- takeScreenshot: agent06-discover-font-2x
+- tapOn: "Profile"
+- takeScreenshot: agent06-profile-font-2x

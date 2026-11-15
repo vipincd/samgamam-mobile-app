@@ -1,0 +1,16 @@
+appId: com.samgamam.mobile
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- scrollUntilVisible:
+    element: "View details for Berlin Community Walk"
+    direction: DOWN
+- tapOn: "View details for Berlin Community Walk"
+- assertVisible: "Berlin Community Walk"
+- assertVisible: "Close details"
+- takeScreenshot: event-details
+- tapOn: "Close details"
+- assertVisible: "Profile"

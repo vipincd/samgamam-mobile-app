@@ -1,0 +1,17 @@
+{
+  "runId": 41722226729,
+  "jobId": 126217719519,
+  "commit": "0b4888fa66d588e6716499d1dff8e6e96e12c5ca",
+  "artifactId": 13272423973,
+  "artifactSha256": "f2453f6a59cb5cad7c626511e725fad24411e4c48d058e5c4f29c0da76de7a08",
+  "smoke": {
+    "passed": 0,
+    "failed": 2
+  },
+  "cause": "OS-owned Quickstep ANR dialog blocks accessibility to the rendered Samgamam UI",
+  "dialogTitle": "Quickstep isn't responding",
+  "closeResourceId": "android:id/aerr_close",
+  "observedMockData": "Berlin Community Walk; Berlin Test Park",
+  "mockServer": "samgamam-acceptance-mock listening on 127.0.0.1:4318",
+  "limitations": "Original run did not retain adb reverse listing or HTTP request history. Successful forwarding is corroborated by the reverse command exit and mock-only event rendered beneath the dialog. No launcher ANR trace explaining its internal deadlock was retained."
+}

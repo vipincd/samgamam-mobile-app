@@ -1,0 +1,14 @@
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+const [name, command, ...args] = process.argv.slice(2);
+if (!name || !command || !/^[a-z0-9-]+$/.test(name)) throw new Error('Usage: check.mjs name command [args]');
+const dir = 'docs/testing/evidence/phase-9';
+mkdirSync(dir, { recursive: true });
+const start = new Date().toISOString();
+const r = spawnSync(command, args, { encoding: 'utf8', timeout: 1200000, maxBuffer: 40 * 1024 * 1024 });
+writeFileSync(`${dir}/${name}.log`, `${r.stdout ?? ''}\n${r.stderr ?? ''}\n${r.error ?? ''}`);
+const record = { name, command: [command, ...args], start, end: new Date().toISOString(), exitCode: r.status, signal: r.signal, error: r.error?.message };
+appendFileSync(`${dir}/commands.jsonl`, JSON.stringify(record) + '\n');
+console.log(JSON.stringify(record));
+console.log((r.stdout + r.stderr).slice(-2500));
+process.exit(r.status ?? 1);

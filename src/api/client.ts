@@ -111,6 +111,15 @@ export function normalizeBaseUrl(raw?: string | null): string | null {
     return validateProductionApiUrl(trimmed);
   }
 
+  // Explicitly bundled local acceptance artifact; fail closed to the one mock origin.
+  if (process.env.EXPO_PUBLIC_LOCAL_ACCEPTANCE === '1') {
+    if (trimmed !== 'http://127.0.0.1:4318') {
+      throw new Error('Local acceptance requires the loopback mock API.');
+    }
+    return trimmed;
+  }
+
+
   let parsed: URL;
 
   try {

@@ -1,0 +1,17 @@
+appId: com.samgamam.mobile
+# Agent 06 supplemental: submitting a search from the keyboard closes it (PR #6 Keyboard.dismiss)
+# and leaves the empty-state recovery reachable on Android.
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- tapOn: "Search events"
+- inputText: "zzzz-no-match"
+- pressKey: Enter
+- scrollUntilVisible:
+    element: "A new moment is around the corner"
+    direction: DOWN
+- assertVisible: "Explore all"
+- takeScreenshot: agent06-search-submitted

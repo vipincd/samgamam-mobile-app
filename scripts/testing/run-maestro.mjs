@@ -1,12 +1,24 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { assertOwnedMock } from './mock-ownership.mjs';
+const require = createRequire(import.meta.url);
+const { getDefaultLockPath, parseMetadata } = require('./mock-manager.cjs');
 // `ios` holds iOS-only flows (custom-scheme deep links); `ios-all` is the full iOS acceptance set.
 const SUITES = { all: ['smoke', 'regression'], smoke: ['smoke'], regression: ['regression'], ios: ['ios'], 'ios-all': ['smoke', 'regression', 'ios'] };
 const [device, suite = 'all'] = process.argv.slice(2);
 if (!device || !Object.hasOwn(SUITES, suite)) throw new Error(`Usage: npm run test:maestro -- DEVICE [${Object.keys(SUITES).join('|')}]`);
+// Run ownership: Maestro flows reset the mock's scenario, so they must only ever
+// talk to the mock owned by this run. MOCK_RUN_ID is set by mock-manager
+// (`exec`, or exported by android-ci.sh after `start`).
+const runId = process.env.MOCK_RUN_ID;
+if (!runId) throw new Error('MOCK_RUN_ID is not set. Start the mock through mock-manager (npm run test:android:acceptance -- DEVICE SUITE) so this run owns it.');
+const lockPath = process.env.ACCEPTANCE_LOCK_PATH || getDefaultLockPath();
+let lock = null;
+try { lock = parseMetadata(readFileSync(lockPath, 'utf8')); } catch {}
+if (lock?.runId !== runId) throw new Error(`Acceptance lock ${lockPath} is not owned by run ${runId} (owner: ${lock?.runId || 'none'}). Refusing to drive a mock this run does not own.`);
 const health = await fetch('http://127.0.0.1:4318/__mock/health').then(r => r.json());
-// MOCK_RUN_ID is set by mock-manager.cjs exec/start: then only our own mock is acceptable.
+// runId is guaranteed above, so only the mock owned by this run is acceptable.
 assertOwnedMock(health, process.env.MOCK_RUN_ID);
 // Multiple Android emulators may be running; never rely on ADB's default target.
 if (device.startsWith('emulator-')) {
@@ -19,7 +31,7 @@ const output = `artifacts/maestro/${new Date().toISOString().replaceAll(':', '-'
 mkdirSync(output, { recursive: true });
 const suites = SUITES[suite];
 const paths = suites.flatMap(s => readdirSync(`.maestro/${s}`).filter(f => f.endsWith('.yaml')).sort().map(f => `.maestro/${s}/${f}`));
-const child = spawn('maestro', ['--device', device, 'test', ...(process.env.MAESTRO_REUSE_DRIVER === '1' ? ['--no-reinstall-driver'] : []), '--format', 'junit', '--output', `${output}/results.xml`, '--test-output-dir', output, ...paths], { stdio: 'inherit' });
+const child = spawn('maestro', ['--device', device, 'test', '-e', `MOCK_RUN_ID=${runId}`, ...(process.env.MAESTRO_REUSE_DRIVER === '1' ? ['--no-reinstall-driver'] : []), '--format', 'junit', '--output', `${output}/results.xml`, '--test-output-dir', output, ...paths], { stdio: 'inherit' });
 const timer = setTimeout(() => child.kill('SIGTERM'), 15 * 60 * 1000);
 child.on('error', e => { clearTimeout(timer); console.error(e); process.exitCode = 1; });
-child.on('exit', code => { clearTimeout(timer); console.log(`Evidence: ${output}`); process.exitCode = code ?? 1; });
+child.on('exit', code => { clearTimeout(timer); console.log(`Evidence: ${output} (runId ${runId})`); process.exitCode = code ?? 1; });

@@ -16,7 +16,7 @@ const jestGlobals = {
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    ignores: ['dist/**', 'artifacts/**', 'docs/testing/evidence/**', '.maestro/**'],
   },
   {
     files: ['jest.setup.js', '**/*.test.ts', '**/*.test.tsx'],
