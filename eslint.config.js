@@ -21,6 +21,7 @@ module.exports = defineConfig([
   {
     files: ['jest.setup.js', '**/*.test.ts', '**/*.test.tsx'],
     languageOptions: { globals: jestGlobals },
+    rules: { 'import/no-unresolved': 'off' },
   },
   {
     // TypeScript already verifies namespace members, and eslint-plugin-import cannot
