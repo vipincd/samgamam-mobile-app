@@ -194,7 +194,7 @@ export function DiscoverScreen(props: {
 
   useEffect(() => {
     const operation = { cancelled: false };
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-load: the loader sets its loading/error state before awaiting the network
+     
     if (isFocused) void loadEvents("", false, () => operation.cancelled);
     return () => {
       operation.cancelled = true;
