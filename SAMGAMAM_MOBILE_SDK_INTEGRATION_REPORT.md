@@ -353,3 +353,96 @@ This integrated candidate demonstrates:
 **Timestamp:** 2026-11-15 01:15 UTC  
 **Repository:** vipincd/samgamam-mobile-app  
 **No production credentials or secrets included.**
+
+---
+
+## ADDENDUM: Agent 6 Cross-Platform iOS Fix Integration
+
+**Timestamp:** 2026-11-15 01:25 UTC  
+**Agent 6 Integration Branch:** `agents/mobile06-int-pr6-pr7-20261114`  
+**Agent 6 Final Commit:** `89a45f4`  
+**Critical Fix Applied:** `f9db0ac`
+
+### Issue Resolved
+
+**Problem:** iOS Maestro deep-link rejection test (`02_deep_link_rejected.yaml`) fails with HTTP 409 on `/__mock/history` endpoint.
+
+**Root Cause:** 
+- PR #6's `.maestro/scripts/assert-no-entity-requests.js` calls mock control endpoint without `x-mock-run-id` header
+- PR #7's mock-api enforces run ownership: returns 409 unless request includes owner's run ID
+- When combined under shared mock-manager infrastructure, iOS flows fail
+
+**Solution Applied:** `f9db0ac` (Agent 6)
+- Updated `assert-no-entity-requests.js` to send `x-mock-run-id` header matching MOCK_RUN_ID
+- Added test `tests/security/maestro-mock-run-id.test.cjs` to verify all Maestro control scripts present run ID
+- Updated cross-platform lock harness test expectations
+
+### Changes Integrated
+
+| File | Change | Status |
+|------|--------|--------|
+| `.maestro/scripts/assert-no-entity-requests.js` | Added MOCK_RUN_ID header to history probe | ✅ Applied |
+| `tests/security/maestro-mock-run-id.test.cjs` | New test: verify all mock-control scripts send run ID | ✅ Added |
+| `tests/manual/agent06-cross-platform-lock.cjs` | Updated harness to expect 409 without header | ⚠️ Manual only (not in acceptance suite) |
+
+### Validation After Fix
+
+- ✅ **Typecheck:** Clean (`tsc --noEmit`)
+- ✅ **Security Audit:** Passes (0 high/critical)
+- ✅ **Jest Unit Tests:** 247+ passing
+- ✅ **New Test Registered:** maestro-mock-run-id discovery works
+- ⏳ **Maestro iOS Acceptance:** Requires simulator + UDID (not available in CLI environment)
+
+### iOS Maestro Flows Coverage
+
+With this fix integrated, iOS acceptance can now run:
+
+```bash
+npm run test:maestro:ios -- <UDID> ios-all
+```
+
+Expected flows:
+- `01_deep_link_event.yaml` — Process samgamam:// scheme with query params
+- `02_deep_link_rejected.yaml` — Reject malformed deep links (now with correct history probe)
+
+All 14 flows (smoke + regression + ios) should pass without 409 errors.
+
+### Impact on Android
+
+Android acceptance unaffected. Mock-manager continues to enforce run ownership on all platforms via `x-mock-run-id` header.
+
+**Atomic Lock Protection:** Android test isolation using `test-acceptance.lock` remains active.
+
+### Final Integration Candidate SHA
+
+**Updated:** `8ae946006038cf84574d5d75d399c6778896e0e4`
+
+This SHA now includes:
+1. Expo SDK 58.0.25 modernization + zod advisory elimination
+2. All four PRs (#2, #5, #6, #7) merged with conflicts resolved
+3. Agent 6's critical iOS mock-run-id fix (`f9db0ac`)
+4. All security protections preserved
+5. Comprehensive test infrastructure
+
+### Next Steps for iOS Verification
+
+**If iOS simulator available:**
+```bash
+cd /Users/vidas/dev/agent-workspaces/mobile-agent-09-integration
+npm install
+npm run typecheck    # ✅ Clean
+npm run security:audit  # ✅ Passes
+npm run test:maestro:ios -- <DEVICE_UDID> ios-all
+```
+
+**Expected Result:**
+- All 14 flows pass
+- No 409 errors on `/__mock/history`
+- Device shows Discover screen with event list
+
+**If simulator unavailable:**
+- Handoff with exact SHA `8ae9460` for Agent 7 to verify on iOS hardware
+- All pre-requisite validation (typecheck, security, unit tests) complete
+- iOS-specific Maestro infrastructure ready
+
+**Status:** Ready for iOS acceptance verification or handoff to Agent 7 with full evidence.
