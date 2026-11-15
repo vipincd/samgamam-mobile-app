@@ -1,3 +1,9 @@
+// Ensure fetch is available for tests
+if (!globalThis.fetch) {
+  const { fetch: nodeFetch } = require('node:fetch');
+  globalThis.fetch = nodeFetch;
+}
+
 jest.mock('react-native-auth0', () => {
   class AuthError extends Error {
     constructor(name = 'AuthError', message = '', options = {}) {
