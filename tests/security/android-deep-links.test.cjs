@@ -3,12 +3,13 @@
 // re-registers routed hosts on MainActivity via plugins/with-android-deep-links.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { existsSync, readFileSync } = require('node:fs');
+const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { addRoutedDeepLinks, ROUTED_HOSTS } = require('../../plugins/with-android-deep-links.cjs');
+const { findMergedReleaseManifest } = require('./android-manifest-paths.cjs');
 
 const root = join(__dirname, '../..');
-const mergedManifest = join(root, 'android/app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml');
+const mergedManifest = findMergedReleaseManifest(root);
 const acceptance = process.env.ANDROID_ACCEPTANCE === '1';
 
 function fakeManifest() {
@@ -42,9 +43,9 @@ test('DEEPLINK-02: every registered host is a route the JS parser handles', () =
 });
 
 test('DEEPLINK-03: merged release manifest routes samgamam:// hosts to MainActivity', (t) => {
-  if (!existsSync(mergedManifest)) {
+  if (!mergedManifest) {
     if (acceptance) assert.fail('MANDATORY ACCEPTANCE GATE FAILED: merged release manifest not found');
-    t.skip('native release build not present in this worktree');
+    t.skip('merged release manifest not present in this worktree');
     return;
   }
   const xml = readFileSync(mergedManifest, 'utf8');

@@ -1,8 +1,6 @@
 const {spawnSync} = require("node:child_process");
 
-// Mobile dependency audit exceptions expired on 2026-11-15.
-// Zod advisory GHSA-MRHX-C7XC-M3W5 was resolved by upgrading Expo to 58.0.25+.
-const ALLOWED_HIGH_GHSAS = new Map([]);
+// No high/critical advisories are allowlisted; every such finding fails this gate.
 
 function extractGhsa(value) {
   const match = String(value ?? "").match(/GHSA-[0-9A-Za-z-]+/i);

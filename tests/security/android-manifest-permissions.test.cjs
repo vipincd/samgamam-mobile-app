@@ -5,6 +5,7 @@ const { join } = require('node:path');
 const { execFileSync, execSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const os = require('node:os');
+const { findMergedReleaseManifest } = require('./android-manifest-paths.cjs');
 
 const projectRoot = join(__dirname, '../..');
 
@@ -190,12 +191,9 @@ test('generated AndroidManifest.xml removes blocked permissions via tools:node="
 });
 
 test('merged release AndroidManifest.xml contains no blocked permissions', (t) => {
-  const mergedManifestPath = join(
-    projectRoot,
-    'android/app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml',
-  );
+  const mergedManifestPath = findMergedReleaseManifest(projectRoot);
 
-  if (!existsSync(mergedManifestPath)) {
+  if (!mergedManifestPath) {
     if (isAcceptanceMode()) {
       assert.fail('MANDATORY ACCEPTANCE GATE FAILED: Merged release manifest not found at android/app/build/.../AndroidManifest.xml');
     } else {
