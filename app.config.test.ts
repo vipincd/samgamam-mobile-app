@@ -1,5 +1,6 @@
 import appConfig, {
   CANONICAL_PRODUCTION_API_URL,
+  AUTH0_ANDROID_PLACEHOLDERS_PLUGIN,
   readOptionalAuth0Configuration,
   validateAppEnvironment,
   validateProductionApiUrl,
@@ -114,11 +115,43 @@ describe('App Environment and Auth0 configuration', () => {
   });
 
   describe('Plugin generation', () => {
+    const { applyAuth0AndroidPlaceholders } = require('./plugins/with-auth0-android-placeholders.cjs');
+
+    it('sets Auth0 Android Gradle manifest placeholders idempotently', () => {
+      const source = 'android {\n    defaultConfig {\n        applicationId "com.samgamam.mobile"\n    }\n}\n';
+      const configured = applyAuth0AndroidPlaceholders(source, {
+        customScheme: 'samgamam',
+        domain: 'tenant.example.invalid',
+      });
+      expect(configured).toContain(
+        'manifestPlaceholders += [auth0Domain: "tenant.example.invalid", auth0Scheme: "samgamam"]',
+      );
+      expect(
+        applyAuth0AndroidPlaceholders(configured, {
+          customScheme: 'samgamam',
+          domain: 'tenant.example.invalid',
+        }),
+      ).toBe(configured);
+      expect(
+        applyAuth0AndroidPlaceholders(configured, {
+          customScheme: 'samgamam',
+          domain: 'other.example.invalid',
+        }),
+      ).toContain('auth0Domain: "other.example.invalid"');
+    });
+
     it('adds the Auth0 plugin for valid configuration', () => {
       process.env = { ...originalEnvironment, ...completeEnvironment };
       const configured = appConfig({ config: {} } as never);
       expect(configured.plugins).toContainEqual([
         'react-native-auth0',
+        {
+          customScheme: 'samgamam',
+          domain: completeEnvironment.EXPO_PUBLIC_AUTH0_DOMAIN,
+        },
+      ]);
+      expect(configured.plugins).toContainEqual([
+        AUTH0_ANDROID_PLACEHOLDERS_PLUGIN,
         {
           customScheme: 'samgamam',
           domain: completeEnvironment.EXPO_PUBLIC_AUTH0_DOMAIN,
@@ -132,6 +165,10 @@ describe('App Environment and Auth0 configuration', () => {
       // Keychain storage stays enabled; the app uses no biometrics, so no Face ID purpose string.
       expect(unconfigured.plugins).toContainEqual(['expo-secure-store', { faceIDPermission: false }]);
       expect(unconfigured.plugins).toContainEqual(['react-native-auth0', { customScheme: 'samgamam', domain: 'unconfigured.invalid' }]);
+      expect(unconfigured.plugins).toContainEqual([
+        AUTH0_ANDROID_PLACEHOLDERS_PLUGIN,
+        { customScheme: 'samgamam', domain: 'unconfigured.invalid' },
+      ]);
       expect(readOptionalAuth0Configuration(process.env)).toBeUndefined();
     });
   });

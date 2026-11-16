@@ -34,6 +34,7 @@ export function GroupsScreen(props: {
   const { targetGroupId, onClearTargetGroupId } = props;
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!targetGroupId) return;
@@ -66,7 +67,9 @@ export function GroupsScreen(props: {
       }
     }
 
-    void loadTargetGroup(targetGroupId);
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadTargetGroup(targetGroupId);
+    });
     return () => {
       cancelled = true;
     };
@@ -79,7 +82,6 @@ export function GroupsScreen(props: {
   const [discussionForbidden, setDiscussionForbidden] = useState(false);
   const [posting, setPosting] = useState(false);
   const [mutatingGroupId, setMutatingGroupId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Pagination state
@@ -165,7 +167,7 @@ export function GroupsScreen(props: {
         }
       }
     },
-    [props.locale],
+    [props.locale, setError],
   );
 
   async function loadMoreGroups() {
@@ -249,7 +251,7 @@ export function GroupsScreen(props: {
         }
       }
     },
-    [props.authenticated, props.locale],
+    [props.authenticated, props.locale, setError],
   );
 
   useEffect(() => {
@@ -258,7 +260,9 @@ export function GroupsScreen(props: {
     }
 
     let cancelled = false;
-    void loadGroups(false, () => cancelled);
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadGroups(false, () => cancelled);
+    });
     return () => {
       cancelled = true;
     };
@@ -270,7 +274,9 @@ export function GroupsScreen(props: {
     }
 
     let cancelled = false;
-    void loadDiscussions(selectedGroup, () => cancelled);
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadDiscussions(selectedGroup, () => cancelled);
+    });
     return () => {
       cancelled = true;
     };

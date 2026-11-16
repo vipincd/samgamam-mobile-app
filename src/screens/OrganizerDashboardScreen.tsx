@@ -104,8 +104,13 @@ export function OrganizerDashboardScreen(props: {
   }, []);
 
   useEffect(() => {
-     
-    void loadOrganizerData();
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadOrganizerData();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadOrganizerData]);
 
   const loadEventDetailAnalytics = useCallback(async (eventId: string) => {

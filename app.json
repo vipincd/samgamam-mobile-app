@@ -24,7 +24,6 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",

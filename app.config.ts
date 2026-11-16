@@ -23,6 +23,7 @@ export const BLOCKED_ANDROID_PERMISSIONS = [
 // Build-time manifest hardening lives in plugins/ because this module is also
 // imported by the app bundle (src/auth/config.ts) and must stay Node-free.
 export const ANDROID_COMPONENT_REMOVALS_PLUGIN = './plugins/android-component-removals.js';
+export const AUTH0_ANDROID_PLACEHOLDERS_PLUGIN = './plugins/with-auth0-android-placeholders.cjs';
 
 export type AppTransportSecurityConfig = {
   NSAllowsArbitraryLoads: false;
@@ -195,6 +196,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // The native Auth0 library requires manifest placeholders even when login
       // is not configured. The reserved .invalid domain cannot reach a tenant.
       ['react-native-auth0', {
+        customScheme: AUTH0_CUSTOM_SCHEME,
+        domain: auth0?.domain ?? 'unconfigured.invalid',
+      }],
+      [AUTH0_ANDROID_PLACEHOLDERS_PLUGIN, {
         customScheme: AUTH0_CUSTOM_SCHEME,
         domain: auth0?.domain ?? 'unconfigured.invalid',
       }],

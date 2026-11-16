@@ -61,8 +61,13 @@ export function AttendeeRosterScreen(props: {
   }, [props.eventId]);
 
   useEffect(() => {
-     
-    void loadAttendees();
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadAttendees();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadAttendees]);
 
   async function handleToggleAttendance(attendee: AttendeeItem) {

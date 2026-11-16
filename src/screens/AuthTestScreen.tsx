@@ -127,8 +127,13 @@ function NativeAuthTestScreen() {
   }, [client]);
 
   useEffect(() => {
-     
-    void reloadSession();
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) void reloadSession();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [reloadSession]);
 
   async function perform(action: (activeClient: AuthenticationClient) => Promise<string>) {

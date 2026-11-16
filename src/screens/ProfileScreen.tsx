@@ -96,7 +96,13 @@ export function ProfileScreen(props: {
   const isDev = typeof __DEV__ !== 'undefined' && Boolean(__DEV__) && !isProductionEnvironment();
 
   useEffect(() => {
-    setDraftApiBaseUrl(props.apiBaseUrl);
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) setDraftApiBaseUrl(props.apiBaseUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [props.apiBaseUrl]);
 
   useEffect(() => {
@@ -231,7 +237,9 @@ export function ProfileScreen(props: {
   const viewerId = props.session.viewer?.id ?? null;
   useEffect(() => {
     let cancelled = false;
-    void loadDashboard(false, () => cancelled);
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadDashboard(false, () => cancelled);
+    });
     return () => {
       cancelled = true;
     };

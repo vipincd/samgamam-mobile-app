@@ -194,8 +194,11 @@ export function DiscoverScreen(props: {
 
   useEffect(() => {
     const operation = { cancelled: false };
-     
-    if (isFocused) void loadEvents("", false, () => operation.cancelled);
+    void Promise.resolve().then(() => {
+      if (isFocused && !operation.cancelled) {
+        void loadEvents("", false, () => operation.cancelled);
+      }
+    });
     return () => {
       operation.cancelled = true;
     };

@@ -149,7 +149,7 @@ export function QrCheckInScreen(props: {
             barcodeTypes: ["qr"],
           }}
           onBarcodeScanned={scanningLocked ? undefined : handleBarcodeScanned}
-          style={StyleSheet.absoluteFill}
+          style={styles.cameraFill}
         />
         <View style={styles.overlay}>
           <View style={styles.targetFrame} />
@@ -286,9 +286,20 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
+    bottom: 0,
     justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  cameraFill: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   targetFrame: {
     borderColor: theme.colors.teal,
