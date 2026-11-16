@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   overlay: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
   },
