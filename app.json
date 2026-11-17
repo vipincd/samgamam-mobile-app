@@ -6,12 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/brand/samgamam-logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FAF8F5"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.samgamam.mobile",
@@ -30,17 +24,24 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       "expo-font",
       "expo-asset",
       [
@@ -62,6 +63,12 @@
         }
       ]
     ],
-    "scheme": "samgamam"
+    "scheme": "samgamam",
+    "extra": {
+      "eas": {
+        "projectId": "0c199634-d3e2-4c01-b7da-417b34a55801"
+      }
+    },
+    "owner": "vipincd"
   }
 }

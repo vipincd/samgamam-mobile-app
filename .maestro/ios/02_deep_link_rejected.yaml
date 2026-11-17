@@ -1,0 +1,25 @@
+appId: com.samgamam.mobile
+# iOS-only: malformed custom-scheme links are rejected, the app stays on Discover
+# without opening details, and the mock records no request beyond the Discover
+# listing (asserted from GET /__mock/history).
+---
+- runScript:
+    file: ../scripts/reset.js
+    env:
+      MODE: success
+- runFlow: ../launch.yaml
+- openLink: samgamam://event/..
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- openLink: samgamam://event/%2E%2E%2Fme
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- openLink: samgamam://event/qa-event/extra
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- openLink: samgamam:///event/qa-event
+- assertVisible: "Search events"
+- assertNotVisible: "Close details"
+- runScript:
+    file: ../scripts/assert-no-entity-requests.js
+- takeScreenshot: ios-deep-link-rejected

@@ -914,3 +914,392 @@ describe('bundled local acceptance URL isolation', () => {
     expect(() => normalizeBaseUrl('http://127.0.0.1:4318')).toThrow('requires HTTPS');
   });
 });
+
+describe('Phase 10A.2 Executable API Client Contract Verification Suite (14 Mandatory Cases)', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.clearAllMocks();
+  });
+
+  // Case 1: Event list endpoint
+  it('CASE-01: invokes GET /api/v1/events and normalizes response payload', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'event-101',
+              groupId: 'group-101',
+              title: 'Berlin Tech Social',
+              description: 'Gathering',
+              tags: ['tech'],
+              category: 'Technology',
+              languages: ['en'],
+              location: 'Berlin Mitte',
+              startsAt: '2030-01-01T10:00:00.000Z',
+              ticketPriceCents: 0,
+              currency: 'EUR',
+              isPaid: false,
+              capacityMode: 'limited',
+              capacity: 30,
+              remainingCapacity: 15,
+            },
+          ],
+          page: { hasNextPage: false, nextCursor: null },
+          meta: { requestId: 'req-case-01' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const res = await apiClient.getEvents();
+    expect(fetchMock).toHaveBeenCalled();
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('/api/v1/events');
+    expect(res.events).toHaveLength(1);
+    expect(res.events[0].id).toBe('event-101');
+    expect(res.meta?.requestId).toBe('req-case-01');
+  });
+
+  // Case 2: Cursor-based pagination query parameters
+  it('CASE-02: formats cursor-based pagination query parameters correctly', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [],
+          page: { hasNextPage: false, nextCursor: null },
+          meta: { requestId: 'req-case-02' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await apiClient.getEvents({
+      limit: 20,
+      cursor: 'cursor-token-abc',
+      q: 'React',
+      category: 'Tech',
+      language: 'en',
+      location: 'Berlin',
+      locale: 'en',
+    });
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('limit=20');
+    expect(calledUrl).toContain('cursor=cursor-token-abc');
+    expect(calledUrl).toContain('q=React');
+    expect(calledUrl).toContain('category=Tech');
+    expect(calledUrl).toContain('language=en');
+    expect(calledUrl).toContain('location=Berlin');
+    expect(calledUrl).toContain('locale=en');
+  });
+
+  // Case 3: Cursor propagation between pages
+  it('CASE-03: propagates nextCursor from page 1 to subsequent page request', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'page1-item' }],
+            page: { hasNextPage: true, nextCursor: 'token-page-2' },
+            meta: { requestId: 'req-p1' },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'page2-item' }],
+            page: { hasNextPage: false, nextCursor: null },
+            meta: { requestId: 'req-p2' },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 },
+        ),
+      );
+    global.fetch = fetchMock as never;
+
+    const page1 = await apiClient.getEvents({ limit: 1 });
+    expect(page1.page?.hasNextPage).toBe(true);
+    expect(page1.page?.nextCursor).toBe('token-page-2');
+
+    // Propagate cursor
+    const page2 = await apiClient.getEvents({ cursor: page1.page?.nextCursor ?? undefined });
+    expect(page2.page?.hasNextPage).toBe(false);
+    expect(page2.page?.nextCursor).toBeNull();
+
+    const secondUrl = fetchMock.mock.calls[1][0] as string;
+    expect(secondUrl).toContain('cursor=token-page-2');
+  });
+
+  // Case 4: End-of-pagination detection
+  it('CASE-04: detects terminal page correctly when hasNextPage is false', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [],
+          page: { hasNextPage: false, nextCursor: null },
+          meta: { requestId: 'req-end' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const res = await apiClient.getEvents({ limit: 50 });
+    expect(res.page?.hasNextPage).toBe(false);
+    expect(res.page?.nextCursor).toBeNull();
+  });
+
+  // Case 5: Profile endpoint invokes /api/v1/me (never /api/v1/users/me)
+  it('CASE-05: invokes canonical profile endpoint /api/v1/me', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            viewer: {
+              id: 'user-777',
+              email: 'member@test.invalid',
+              fullName: 'Test Member',
+              emailVerified: true,
+              roles: ['member'],
+            },
+            locale: 'en',
+          },
+          meta: { requestId: 'req-profile' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    const profile = await apiClient.getViewerProfile('en');
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('/api/v1/me');
+    expect(calledUrl).not.toContain('/users/me');
+    expect(profile.data.viewer?.id).toBe('user-777');
+  });
+
+  // Case 6: Authenticated request attaches Bearer token header
+  it('CASE-06: attaches Bearer token to Authorization header for authenticated requests', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: { viewer: { id: 'u1' } },
+          meta: { requestId: 'req-auth' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await apiClient.setAccessToken('auth-token-xyz');
+    await apiClient.getViewerProfile();
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = new Headers(requestInit.headers);
+    expect(headers.get('Authorization')).toBe('Bearer auth-token-xyz');
+  });
+
+  // Case 7: Expired token (401) triggers token expired handler and clears token
+  it('CASE-07: handles expired token (401) by triggering expired handler and clearing stored token', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: 'expired', message: 'Token expired', requestId: 'req-401' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 401 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    let expiredHandlerTriggered = false;
+    apiClient.setTokenExpiredHandler(async () => {
+      expiredHandlerTriggered = true;
+      return false; // do not retry
+    });
+
+    await apiClient.setAccessToken('expired-token');
+    await expect(apiClient.getViewerProfile()).rejects.toThrow(ApiError);
+    expect(expiredHandlerTriggered).toBe(true);
+    expect(apiClient.hasStoredAccessToken()).toBe(false);
+  });
+
+  // Case 8: Auth0 session exchange replaces stored token
+  it('CASE-08: exchanges Auth0 token via establishAuth0Session and updates stored credentials', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            accessToken: 'backend-token-new',
+            viewer: { id: 'auth0-user-1', email: 'a@test.invalid' },
+            locale: 'en',
+          },
+          meta: { requestId: 'req-session' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await apiClient.establishAuth0Session('auth0-id-token-123', 'member');
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('/api/v1/auth/session');
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith('samgamam.access_token', 'backend-token-new');
+  });
+
+  // Case 9: RSVP creation formats legal consent accurately
+  it('CASE-09: formats RSVP creation with state and legal consent', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            event: { id: 'ev-rsvp' },
+            state: 'going',
+          },
+          meta: { requestId: 'req-rsvp' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await apiClient.rsvpToEvent('ev-rsvp', 'going', { termsAccepted: true, riskAcknowledged: true });
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toContain('/api/v1/events/ev-rsvp/rsvp');
+    expect(calledInit.method).toBe('POST');
+    expect(JSON.parse(calledInit.body as string)).toEqual({
+      state: 'going',
+      termsAccepted: true,
+      riskAcknowledged: true,
+    });
+  });
+
+  // Case 10: RSVP cancellation sends state: 'cancelled' without requiring terms
+  it('CASE-10: cancels RSVP with state: "cancelled" without requiring terms consent', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            event: { id: 'ev-rsvp' },
+            state: 'cancelled',
+          },
+          meta: { requestId: 'req-cancel' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    await apiClient.cancelRsvp('ev-rsvp');
+    const [, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(calledInit.method).toBe('POST');
+    expect(JSON.parse(calledInit.body as string)).toEqual({
+      state: 'cancelled',
+    });
+  });
+
+  // Case 11: Error-envelope parsing extracts code, message, requestId, details
+  it('CASE-11: parses RFC 7807 error envelopes and populates ApiError fields', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'terms_acceptance_required',
+            message: 'Must accept terms',
+            requestId: 'req-err-parse-11',
+            details: [{ field: 'termsAccepted', code: 'missing' }],
+          },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 400 },
+      ),
+    );
+    global.fetch = fetchMock as never;
+
+    try {
+      await apiClient.getEvents();
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(400);
+      expect(apiErr.code).toBe('terms_acceptance_required');
+      expect(apiErr.message).toBe('Must accept terms');
+      expect(apiErr.requestId).toBe('req-err-parse-11');
+      expect(apiErr.details).toEqual([{ field: 'termsAccepted', code: 'missing' }]);
+    }
+  });
+
+  // Case 12: HTTP 401 vs 403 semantic behavior
+  it('CASE-12: differentiates 401 (triggers expired handler) from 403 (halts immediately)', async () => {
+    let expiredTriggered = false;
+    apiClient.setTokenExpiredHandler(async () => {
+      expiredTriggered = true;
+      return false;
+    });
+
+    // 403 Forbidden: must NOT trigger expired handler
+    const fetchMock403 = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: 'forbidden', message: 'Access denied', requestId: 'req-403' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 403 },
+      ),
+    );
+    global.fetch = fetchMock403 as never;
+
+    await expect(apiClient.getEvents()).rejects.toMatchObject({
+      status: 403,
+      code: 'forbidden',
+    });
+    expect(expiredTriggered).toBe(false);
+
+    // 401 Unauthorized: MUST trigger expired handler
+    const fetchMock401 = jest.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: 'expired', message: 'Token expired', requestId: 'req-401' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 401 },
+      ),
+    );
+    global.fetch = fetchMock401 as never;
+
+    await expect(apiClient.getEvents()).rejects.toMatchObject({
+      status: 401,
+      code: 'expired',
+    });
+    expect(expiredTriggered).toBe(true);
+  });
+
+  // Case 13: Malformed JSON handling
+  it('CASE-13: handles malformed JSON response safely as invalid_json ApiError', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response('{broken json...', {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      }),
+    );
+    global.fetch = fetchMock as never;
+
+    await expect(apiClient.getEvents()).rejects.toMatchObject({
+      code: 'invalid_json',
+    });
+  });
+
+  // Case 14: Timeout or network failure handling
+  it('CASE-14: classifies network transport failures as network ApiError', async () => {
+    const fetchMock = jest.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    global.fetch = fetchMock as never;
+
+    await expect(apiClient.getEvents()).rejects.toMatchObject({
+      category: 'network',
+    });
+  });
+});
