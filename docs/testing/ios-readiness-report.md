@@ -285,8 +285,9 @@ and `02_deep_link_rejected.yaml` sit outside the runner's `smoke`/`regression` f
 integration candidate reported 14/14 passes on 14 Nov (12 shared flows plus 2 iOS-only flows)
 under the owned mock; see Round 3 above. Separate attempts recorded on the then-current iOS
 branch were blocked by host load or port contention. Those results refer to different branches
-and snapshots; the current PR #8 SHA was not run through iOS Maestro. PR #8's current-head
-Android emulator acceptance is recorded in the PR description.
+and snapshots; the current PR #8 implementation was not run through iOS Maestro. PR #8's
+Android deterministic acceptance passed on SHA `218ab60975de8895938448a17e884547c106e91c`
+(run `43986304102`); this Android result does not establish iOS Maestro acceptance.
 
 ## Performance (Release simulator, loaded host — indicative only)
 
