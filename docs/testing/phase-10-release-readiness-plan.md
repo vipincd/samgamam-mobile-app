@@ -1,11 +1,9 @@
 # Samgamam Mobile Phase 10 — Real device and release readiness plan
 
-Status: **PLANNED, NOT STARTED**. Baseline: `main` at `f5e11b4` (Phase 9 merge, PR #3).
-Phase 9 proved deterministic, mock-only acceptance on an Android emulator (12/12), an iOS
-Simulator (12/12) and GitHub Android smoke (2/2). It proves nothing about physical devices,
-real authentication, push delivery, signing or store readiness. **Production release
-remains NOT APPROVED.** Phase 10 does not deploy, upload to a store, enable production
-integrations or create paid infrastructure without separate, explicit owner authorization.
+Status: **IN PROGRESS — CODE-ONLY SDK 58 MERGED; RELEASE NOT APPROVED.** The original Phase 9 baseline was `main` at `f5e11b4` (PR #3).
+On 2026-11-22 PR #8 was merged into `main` at `ce213fa44d1c621979a3286def59690ab339ff11`, from reviewed PR head `d70732cf38e80ea77c094db3c17bb64a0b1bc0fd`.
+GitHub Mobile CI run `43988736177` and Android deterministic acceptance run `43988735970` succeeded on that PR head. The 2026-11-22 Antigravity review reported 266/266 Jest tests passing, 85 contract/security checks passing (4 native-artifact checks skipped locally), and zero lint/typecheck errors. Its latest Expo Doctor check was 19/20 because newer SDK 58 patch versions were published; this needs reconciliation before claiming a current fully-green local preflight.
+PR #5's SDK 54-era release-hardening safeguards were confirmed represented in #8 and PR #5 was closed as superseded; its historical security review remains in the PR history. Phase 9 simulator and SDK 58 emulator evidence is **not** physical-device acceptance. Real authentication, push delivery, privacy/store compliance, signing, and production release remain **NOT APPROVED**. This document does not authorize deployment, paid builds, tenant creation or store submission.
 
 ## Authorization gates
 
@@ -27,22 +25,20 @@ Fix these early. They are small, and several affect store review.
 
 | ID | Finding | Action | Gate |
 |---|---|---|---|
-| F1 | The merged release manifest requests `SYSTEM_ALERT_WINDOW`, `READ_EXTERNAL_STORAGE` and `WRITE_EXTERNAL_STORAGE`, none of which the app declares in `app.json`. | Add them to `android.blockedPermissions`, rebuild, and verify the merged manifest with an asset test similar to the RECORD_AUDIO check. | none |
-| F2 | iOS `NSAllowsLocalNetworking=true` (Expo default) ships in Release builds. | Set it from `app.config.ts` for production profiles (false) and keep it true only for acceptance/dev. Verify the built `Info.plist`. | none |
+| F1 | Android merged release manifest included `SYSTEM_ALERT_WINDOW`, `READ_EXTERNAL_STORAGE` and `WRITE_EXTERNAL_STORAGE`. | **CODE-LEVEL DONE in PR #8:** blocked permissions and native manifest checks; recheck real release APK on final signed candidate in 10.7. | none |
+| F2 | iOS `NSAllowsLocalNetworking=true` could ship in Release builds. | **CODE-LEVEL DONE in PR #8:** production/preview/staging ATS deny local networking in config tests; verify final signed IPA `Info.plist` in 10.7. | none |
 | F3 | The Maestro CLI is installed by `curl \| bash` with no integrity check. | Download the pinned 2.12.1 release zip, verify its SHA-256 in the workflow, then unzip. | none |
 | F4 | GitHub Actions are pinned by tag, not commit SHA. | Pin `actions/*` and `reactivecircus/android-emulator-runner` to full SHAs; add Dependabot for `github-actions`. | none |
 | F5 | `main` has no branch protection or rulesets. | Require the `verify` and `android` checks plus one review on `main`; block force pushes. | owner |
-| F6 | Three `react-hooks/exhaustive-deps` warnings (`GroupsScreen` x2, `ProfileScreen`). These are not stale-closure bugs, but out-of-order responses can win. | Add a request-generation guard or `AbortController` per loader, add a test for rapid locale/auth changes, then clear the warnings. | none |
-| F7 | `10_relaunch` relaunches without the launcher-ANR handler. | Route the relaunch through the shared `dismiss-launcher-anr.yaml` before running the full suite in CI. | none |
-| F8 | 68 moderate and 5 low audit findings, all in build/dev tooling chains. | Triage each: runtime or build-only, fix available, Expo SDK upgrade path. Record the outcome in `security-review.md`. | none |
-| F9 | Account deletion is not implemented (an Apple 5.1.1(v) and Google Play requirement). | See 10.6. This is a product and backend dependency. | product |
+| F6 | Three `react-hooks/exhaustive-deps` warnings (`GroupsScreen` x2, `ProfileScreen`). | **DONE in PR #8:** request-generation/cancellation guards and race tests; 2026-11-22 lint check had 0 warnings. | none |
+| F7 | `10_relaunch` relaunches without launcher-ANR handling. | **DONE in PR #8:** uses `dismiss-launcher-anr.yaml` and asserts the Samgamam app itself has not crashed/ANRed. | none |
+| F8 | Moderate/low dependency advisories required triage. | **CODE-LEVEL DONE in PR #8:** audit gate remains fail-closed for high/critical; 2026-11-22 review reported 0 critical, 0 high, 27 moderate, 0 low (`glob`/`minimatch` tooling). Residual advisories need explicit owner assessment before release. | none |
+| F9 | Account deletion is not implemented (Apple 5.1.1(v) and Google Play requirement). | **OPEN — STORE SUBMISSION BLOCKER:** implement and verify in-app deletion plus backend erasure in staging. See 10.6. | product |
 
 ## Workstreams and exit criteria
 
 ### 10.1 Repository hardening (no gate)
-Complete F1–F4, F6 and F7, with a regression test for each. Exit: CI green, the merged
-manifest and Info.plist evidence are refreshed in `evidence/phase-10/summary/`, and lint
-reports 0 warnings.
+**Completed at code level in PR #8:** F1, F2, F6, F7 and F8. **Still open:** F3 (verified Maestro installer), F4 (pin GitHub Actions to full SHAs and Dependabot), F5 (owner-enabled branch protection). Do not mark 10.1 complete until these are addressed, current Expo Doctor patch drift is reconciled and CI is green on the resulting HEAD. Confirm final native release manifest and iOS `Info.plist` in the signed-build workstream (10.7).
 
 ### 10.2 Android physical-device acceptance (G1)
 Devices: at least one low-end device (≤3 GB RAM, Android 10–11), one mid-range device
@@ -101,7 +97,7 @@ A passing gate is a prerequisite for the production-release decision, not the de
 
 ## Recommended execution sequence
 
-1. 10.1 hardening (F1–F7) plus F5 branch protection. This needs no external access.
+1. Finish the open 10.1 safeguards F3 and F4; owner enables F5 branch protection. Reconcile SDK 58 Expo Doctor patch drift with tested updates as needed. F1/F2/F6/F7/F8 were completed at code level by PR #8; don't silently re-open or mark real-device checks complete.
 2. 10.2 Android and 10.3 iPhone device runs against the mock-only build (G1), in parallel.
 3. Owner approval of G2 and G3, then 10.4 authentication, then 10.6 account deletion and privacy.
 4. G4, then 10.5 push.
