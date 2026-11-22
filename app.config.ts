@@ -24,6 +24,7 @@ export const BLOCKED_ANDROID_PERMISSIONS = [
 // imported by the app bundle (src/auth/config.ts) and must stay Node-free.
 export const ANDROID_COMPONENT_REMOVALS_PLUGIN = './plugins/android-component-removals.js';
 export const AUTH0_ANDROID_PLACEHOLDERS_PLUGIN = './plugins/with-auth0-android-placeholders.cjs';
+export const IOS_SCENE_LINKING_PLUGIN = './plugins/with-ios-scene-linking.cjs';
 
 export type AppTransportSecurityConfig = {
   NSAllowsArbitraryLoads: false;
@@ -199,6 +200,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         customScheme: AUTH0_CUSTOM_SCHEME,
         domain: auth0?.domain ?? 'unconfigured.invalid',
       }],
+      // Keeps react-native-auth0's pre-scene openURL override out of the SDK 58
+      // AppDelegate, where it does not compile; ExpoAppSceneDelegate delivers URLs.
+      IOS_SCENE_LINKING_PLUGIN,
       [AUTH0_ANDROID_PLACEHOLDERS_PLUGIN, {
         customScheme: AUTH0_CUSTOM_SCHEME,
         domain: auth0?.domain ?? 'unconfigured.invalid',
