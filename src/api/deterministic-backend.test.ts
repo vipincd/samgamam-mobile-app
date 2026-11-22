@@ -1,15 +1,23 @@
 import { apiClient, ApiError } from './client';
 import { createServer } from 'node:http';
+import { fetch as nodeFetch } from 'undici';
 
 import { createMockServer } from '../../scripts/testing/mock-api.cjs';
 let server: ReturnType<typeof createServer>;
 let base: string;
+const originalFetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
 const reset = async (mode: string) => {
   await fetch(`${base}/__mock/reset?mode=${mode}`, { method: 'POST' });
   await apiClient.setAccessToken(null);
 };
 
 beforeAll(async () => {
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    enumerable: true,
+    value: nodeFetch,
+    writable: true,
+  });
   server = createMockServer();
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -22,6 +30,11 @@ afterAll(async () => {
   await apiClient.clearStoredSession();
   server.closeAllConnections();
   await new Promise<void>(resolve => server.close(() => resolve()));
+  if (originalFetchDescriptor) {
+    Object.defineProperty(globalThis, 'fetch', originalFetchDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, 'fetch');
+  }
 });
 
 it('uses the real client over HTTP for login, stored session, RSVP consent, cancellation and logout', async () => {

@@ -1,3 +1,8 @@
+const { performance } = require('node:perf_hooks');
+Object.assign(globalThis.performance, {
+  markResourceTiming: performance.markResourceTiming.bind(performance),
+});
+
 jest.mock('react-native-auth0', () => {
   class AuthError extends Error {
     constructor(name = 'AuthError', message = '', options = {}) {
@@ -76,6 +81,7 @@ jest.mock('expo-notifications', () => ({
     remove: jest.fn(),
   })),
   getLastNotificationResponseAsync: jest.fn(async () => null),
+  clearLastNotificationResponse: jest.fn(),
 }));
 
 jest.mock('expo-secure-store', () => {

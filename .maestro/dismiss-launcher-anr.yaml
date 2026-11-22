@@ -1,11 +1,12 @@
 appId: com.samgamam.mobile
 ---
-# API 35's emulator launcher can show an ANR over an already rendered app.
-# Match that exact OS-owned dialog; never dismiss an ANR belonging to Samgamam.
+# API 35 Android emulator launcher/system-UI can display an OS-level ANR dialog over the running app.
+# 1. Match ONLY identified OS-level dialogs ("Quickstep isn't responding" or "System UI isn't responding").
+# 2. NEVER match, dismiss, or mask an ANR or crash belonging to Samgamam or com.samgamam.mobile.
 - runFlow:
     when:
-      visible: "Quickstep isn't responding"
+      visible: "Quickstep isn't responding|System UI isn't responding"
     commands:
-      - takeScreenshot: emulator-quickstep-anr
+      - takeScreenshot: emulator-launcher-anr
       - tapOn:
           id: "android:id/aerr_close"

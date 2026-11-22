@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   Image,
   Linking,
   Modal,
@@ -46,7 +47,18 @@ export function DiscoverScreen(props: {
 }) {
   const { authenticated, isFocused, locale, onRequestSignIn, targetEventId, onClearTargetEventId } = props;
   const [events, setEvents] = useState<EventSummary[]>([]);
-  const [recommendations, setRecommendations] = useState<RecommendationsResponse | null>(null);
+  const recommendationsKey = authenticated && isFocused ? locale : null;
+  const [recommendationState, setRecommendationState] = useState<{
+    key: string | null;
+    value: RecommendationsResponse | null;
+  }>({ key: null, value: null });
+  const recommendations =
+    recommendationsKey !== null && recommendationState.key === recommendationsKey
+      ? recommendationState.value
+      : null;
+  const setRecommendations = (
+    update: (current: RecommendationsResponse | null) => RecommendationsResponse | null,
+  ) => setRecommendationState((state) => ({ ...state, value: update(state.value) }));
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [category, setCategory] = useState("All");
@@ -147,6 +159,13 @@ export function DiscoverScreen(props: {
     [locale]
   );
 
+  // Submitting a search closes the keyboard so the results (and the empty-state
+  // "Explore all" recovery) are not left underneath it.
+  function submitSearch() {
+    Keyboard.dismiss();
+    void loadEvents(query);
+  }
+
   const loadMoreEvents = useCallback(async () => {
     if (!hasNextPage || !nextCursor || loadingMore || loading || submittedQuery.trim()) {
       return;
@@ -175,7 +194,11 @@ export function DiscoverScreen(props: {
 
   useEffect(() => {
     const operation = { cancelled: false };
-    if (isFocused) void loadEvents("", false, () => operation.cancelled);
+    void Promise.resolve().then(() => {
+      if (isFocused && !operation.cancelled) {
+        void loadEvents("", false, () => operation.cancelled);
+      }
+    });
     return () => {
       operation.cancelled = true;
     };
@@ -183,18 +206,17 @@ export function DiscoverScreen(props: {
 
   useEffect(() => {
     let active = true;
-    setRecommendations(null);
-    if (authenticated && isFocused) {
+    if (recommendationsKey !== null) {
       void within(apiClient.getRecommendations(2))
         .then((r) => {
-          if (active) setRecommendations(r);
+          if (active) setRecommendationState({ key: recommendationsKey, value: r });
         })
         .catch(() => undefined);
     }
     return () => {
       active = false;
     };
-  }, [authenticated, isFocused, locale]);
+  }, [recommendationsKey]);
 
   async function openEventDetail(eventSummary: EventSummary) {
     setTermsAccepted(false);
@@ -432,7 +454,7 @@ export function DiscoverScreen(props: {
             </View>
             <View style={styles.intro}>
               <Text style={styles.eyebrow}>DISCOVER YOUR COMMUNITY</Text>
-              <Text style={styles.heading} accessibilityRole="header">Find your next{"\n"}shared moment.</Text>
+              <Text style={styles.heading} accessibilityRole="header" maxFontSizeMultiplier={1.6}>Find your next{"\n"}shared moment.</Text>
               <Text style={styles.subtitle}>Good company is closer than you think.</Text>
             </View>
             <View style={styles.search}>
@@ -446,14 +468,14 @@ export function DiscoverScreen(props: {
                 returnKeyType="search"
                 autoCorrect={false}
                 style={styles.searchInput}
-                onSubmitEditing={() => { void loadEvents(query); }}
+                onSubmitEditing={submitSearch}
               />
               {query ? (
                 <Pressable accessibilityLabel="Clear search" accessibilityRole="button" onPress={() => { setQuery(""); void loadEvents(""); }} style={styles.searchButton}>
                   <X size={17} color={brand.muted} />
                 </Pressable>
               ) : null}
-              <Pressable accessibilityLabel="Search" accessibilityRole="button" style={({ pressed }) => [styles.submit, pressed && { opacity: 0.7 }]} onPress={() => { void loadEvents(query); }}>
+              <Pressable accessibilityLabel="Search" accessibilityRole="button" style={({ pressed }) => [styles.submit, pressed && { opacity: 0.7 }]} onPress={submitSearch}>
                 <ArrowRight size={18} color="#FFF" />
               </Pressable>
             </View>
@@ -515,7 +537,7 @@ export function DiscoverScreen(props: {
                 <Text style={styles.retryText}>Explore all</Text>
               </Pressable>
             </View>
-          ) : null
+          ) : undefined
         }
         ListFooterComponent={
           loadingMore ? (
@@ -524,7 +546,7 @@ export function DiscoverScreen(props: {
             </View>
           ) : !loading && visible.length > 0 ? (
             <Text style={styles.endNote}>Every gathering starts with showing up.</Text>
-          ) : null
+          ) : undefined
         }
       />
 

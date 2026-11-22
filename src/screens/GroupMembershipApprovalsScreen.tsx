@@ -64,7 +64,13 @@ export function GroupMembershipApprovalsScreen(props: {
   }, [selectedGroupId]);
 
   useEffect(() => {
-    void loadRequests();
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) void loadRequests();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadRequests]);
 
   async function handleAction(targetUserId: string, action: "approve" | "reject") {

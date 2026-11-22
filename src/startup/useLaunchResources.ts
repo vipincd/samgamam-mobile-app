@@ -11,7 +11,6 @@ export function useLaunchResources() {
   const [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
-    setError(false);
     const timer = setTimeout(() => { if (active) setError(true); }, 12000);
     Promise.all([
       Font.loadAsync({ Manrope_400Regular, Manrope_600SemiBold, Manrope_700Bold, Outfit_600SemiBold }),
@@ -21,5 +20,5 @@ export function useLaunchResources() {
       .finally(() => clearTimeout(timer));
     return () => { active = false; clearTimeout(timer); };
   }, [attempt]);
-  return { ready, error, retry: () => setAttempt((value) => value + 1) };
+  return { ready, error, retry: () => { setError(false); setAttempt((value) => value + 1); } };
 }

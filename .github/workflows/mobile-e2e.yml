@@ -34,14 +34,33 @@ jobs:
       - run: npm ci
       - name: Install pinned Maestro CLI
         run: |
-          curl -fsSL https://get.maestro.mobile.dev | MAESTRO_VERSION=2.12.1 bash
+          curl -fsSL --retry 5 --retry-connrefused --retry-delay 3 https://get.maestro.mobile.dev | MAESTRO_VERSION=2.12.1 bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
       - name: Generate and build Android bundled acceptance APK
         run: |
           npx expo prebuild --platform android --no-install
           node scripts/testing/prepare-android-acceptance.mjs
           cd android
+          # Bounded narrow retry specifically for transient network failures during Gradle distribution download (e.g. HTTP 504)
+          for attempt in 1 2 3; do
+            echo "Acquiring Gradle distribution wrapper (attempt $attempt of 3)..."
+            if ./gradlew --version --console=plain; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to acquire Gradle distribution wrapper after 3 attempts."
+              exit 1
+            fi
+            echo "Transient network failure during Gradle distribution download. Retrying in 5s..."
+            sleep 5
+          done
+
+          # Assemble release APK without blind retries to keep compiler, source, and manifest errors immediately visible
           ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --console=plain
+      - name: Mandatory native gate (APK permissions with SHA-256, deep-link registration)
+        env:
+          ANDROID_ACCEPTANCE: '1'
+        run: node --test tests/security/android-manifest-permissions.test.cjs tests/security/android-deep-links.test.cjs
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
