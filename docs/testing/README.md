@@ -60,15 +60,17 @@ under the Phase 9 local-only testing policy; no staging tenant is used.
 
 ```bash
 EXPO_NO_DOTENV=1 EXPO_PUBLIC_LOCAL_ACCEPTANCE=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:4318 npx expo prebuild --platform ios --no-install
-(cd ios && EXPO_NO_DOTENV=1 pod install)
+(cd ios && LANG=en_US.UTF-8 EXPO_NO_DOTENV=1 pod install)
+# Do not override IPHONEOS_DEPLOYMENT_TARGET: SDK 58 generates 16.4 and expo-application
+# uses iOS 16 APIs, so forcing an older target fails the build.
 EXPO_NO_DOTENV=1 EXPO_PUBLIC_LOCAL_ACCEPTANCE=1 EXPO_PUBLIC_API_URL=http://127.0.0.1:4318 xcodebuild \
   -workspace ios/Samgamam.xcworkspace -scheme Samgamam -configuration Release \
   -sdk iphonesimulator -destination 'platform=iOS Simulator,id=SIMULATOR_UUID' \
   -derivedDataPath artifacts/ios-build -jobs 2 \
-  CODE_SIGNING_ALLOWED=NO IPHONEOS_DEPLOYMENT_TARGET=15.1 build
+  CODE_SIGNING_ALLOWED=NO build
 xcrun simctl install SIMULATOR_UUID artifacts/ios-build/Build/Products/Release-iphonesimulator/Samgamam.app
-# Start mock as above, then:
-npm run test:maestro -- SIMULATOR_UUID all
+# Takes the shared 4318 lock and starts its own mock (do not start one by hand):
+npm run test:maestro:ios -- SIMULATOR_UUID ios-all
 ```
 
 The explicit deployment target addresses old pod targets rejected by Xcode 27.2.
