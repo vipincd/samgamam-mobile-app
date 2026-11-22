@@ -56,6 +56,28 @@ describe("Deep-Link & Push Payload Parser", () => {
     });
   });
 
+  it("parses Samgamam Web's /e/{eventId} share and QR links as events", () => {
+    const event = { type: "event", id: "0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e" };
+    expect(parseDeepLinkUrl("https://samgamam.com/e/0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e")).toEqual(event);
+    expect(parseDeepLinkUrl("https://www.samgamam.com/e/0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e/")).toEqual(event);
+    expect(parseDeepLinkUrl("https://samgamam.com/e/0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e?from=qr")).toEqual(event);
+    expect(parseDeepLinkUrl("/e/0b9f3c1e-2d4a-4f7b-9c1e-2d4a4f7b9c1e")).toEqual(event);
+
+    for (const rejected of [
+      "https://samgamam.com/e",
+      "https://samgamam.com/e/",
+      "https://samgamam.com/e//",
+      "https://samgamam.com/e/qa-event/edit",
+      "https://samgamam.com/e/qa%2Fevent",
+      "https://samgamam.com/e/%2e%2e",
+      "https://samgamam.com/en/e/qa-event",
+      "https://samgamam.com.evil.example/e/qa-event",
+      "http://samgamam.com/e/qa-event",
+    ]) {
+      expect(parseDeepLinkUrl(rejected).type).toBe("unknown");
+    }
+  });
+
   it("parses web URLs and relative paths with and without locale prefixes", () => {
     expect(parseDeepLinkUrl("/events/event-web-1")).toEqual({
       type: "event",

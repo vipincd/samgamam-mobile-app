@@ -55,6 +55,13 @@ function routeTarget(segments: string[], raw: string): NavigationTarget {
 function webPathTarget(pathname: string, raw: string): NavigationTarget {
   // pathname always starts with '/'; '//host' style paths leave an empty first segment.
   const segments = pathname.slice(1).split('/');
+  // Samgamam Web's canonical event share/QR link is /e/{eventId} (the only path
+  // its apple-app-site-association claims). It is never locale-prefixed and
+  // must be exactly two segments (plus one optional trailing slash).
+  if (segments[0] === 'e') {
+    const id = segments.length === 3 && segments[2] === '' ? segments.slice(0, 2) : segments;
+    return id.length === 2 && id[1] !== '' ? entityTarget('event', id[1], raw) : { type: 'unknown', raw };
+  }
   // Ignore locale prefix if present (e.g. /en/events/123 -> events, 123)
   return routeTarget(LOCALE_SEGMENT.test(segments[0]) ? segments.slice(1) : segments, raw);
 }
